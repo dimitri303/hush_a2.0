@@ -1,0 +1,162 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#06040a;cursor:none}
+body{font-family:'Press Start 2P',monospace}
+
+#wrap{
+  position:fixed;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse 80% 70% at 50% 45%,#14102000 0%,#06040a 100%);
+}
+/* Main canvas — 640×360 internal, scaled to fill */
+#c{
+  display:block;
+  transform-origin:0 0;
+  transition:transform 980ms cubic-bezier(.16,.84,.19,1), filter 700ms ease;
+  will-change:transform,filter;
+  image-rendering:auto; /* smooth — 16-bit look, not pixel art */
+}
+
+/* Glow layer — screen blend, full-res soft bloom */
+#glow{position:fixed;inset:0;pointer-events:none;z-index:3;mix-blend-mode:screen}
+/* Chromatic fringe on screen edges */
+#chrome{position:fixed;inset:0;pointer-events:none;z-index:4;
+  background:linear-gradient(90deg,rgba(255,0,80,.025) 0%,transparent 8%,transparent 92%,rgba(0,200,255,.025) 100%)}
+/* Subtle scanlines */
+#crt{position:fixed;inset:0;pointer-events:none;z-index:5;
+  background:repeating-linear-gradient(0deg,transparent,transparent 4px,rgba(0,0,0,.04) 4px,rgba(0,0,0,.04) 8px)}
+/* Vignette */
+#vign{position:fixed;inset:0;pointer-events:none;z-index:6;
+  background:radial-gradient(ellipse 110% 100% at 50% 50%,transparent 48%,rgba(0,0,0,.6) 100%)}
+
+/* Smart crosshair cursor */
+#cur{
+  position:fixed;pointer-events:none;z-index:99;
+  width:20px;height:20px;
+  transform:translate(-50%,-50%);
+  transition:transform 60ms linear;
+}
+/* Four corner brackets */
+#cur::before,#cur::after,#curb,#curc{
+  content:'';position:absolute;
+  width:5px;height:5px;
+  border-color:rgba(210,185,255,.85);
+  border-style:solid;
+  transition:all .12s ease;
+}
+#cur::before{top:0;left:0;border-width:1.5px 0 0 1.5px}
+#cur::after{top:0;right:0;border-width:1.5px 1.5px 0 0}
+#curb{bottom:0;left:0;border-width:0 0 1.5px 1.5px}
+#curc{bottom:0;right:0;border-width:0 1.5px 1.5px 0}
+/* Centre dot */
+#curd{
+  position:absolute;top:50%;left:50%;
+  width:2px;height:2px;
+  background:rgba(220,200,255,.9);
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  box-shadow:0 0 4px rgba(180,150,255,.7);
+  transition:all .12s ease;
+}
+/* Hover state — brackets contract, dot brightens */
+#cur.hover::before,#cur.hover::after,#cur.hover #curb,#cur.hover #curc{
+  border-color:rgba(255,220,255,1);
+  width:4px;height:4px;
+}
+#cur.hover #curd{
+  background:#fff;
+  box-shadow:0 0 8px rgba(200,170,255,.9),0 0 14px rgba(100,160,255,.5);
+}
+/* Click flash */
+#cur.click #curd{
+  background:#fff;
+  box-shadow:0 0 14px rgba(255,255,255,.9);
+}
+/* Context colours */
+#cur.ctx-lamp{--cc:rgba(255,200,120,.9)}
+#cur.ctx-radio{--cc:rgba(255,180,255,.9)}
+#cur.ctx-tv{--cc:rgba(140,230,255,.9)}
+#cur.ctx-window{--cc:rgba(160,220,255,.9)}
+#cur.ctx-holo{--cc:rgba(200,170,255,.9)}
+#cur.ctx-lamp::before,#cur.ctx-lamp::after,#cur.ctx-lamp #curb,#cur.ctx-lamp #curc,
+#cur.ctx-radio::before,#cur.ctx-radio::after,#cur.ctx-radio #curb,#cur.ctx-radio #curc,
+#cur.ctx-tv::before,#cur.ctx-tv::after,#cur.ctx-tv #curb,#cur.ctx-tv #curc,
+#cur.ctx-window::before,#cur.ctx-window::after,#cur.ctx-window #curb,#cur.ctx-window #curc,
+#cur.ctx-holo::before,#cur.ctx-holo::after,#cur.ctx-holo #curb,#cur.ctx-holo #curc
+{border-color:var(--cc)}
+
+/* Init screen */
+#init{position:fixed;inset:0;z-index:200;background:#06040a;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 1.8s ease}
+#init.gone{opacity:0;pointer-events:none}
+.il{
+  color:#e8d8f0;
+  font-size:clamp(18px,3vw,36px);
+  letter-spacing:16px;
+  text-shadow:0 0 40px rgba(180,140,220,.45),0 0 80px rgba(100,80,160,.18);
+  margin-bottom:0;
+  animation:ilbreathe 7s ease-in-out infinite;
+  opacity:0;
+  animation-fill-mode:forwards;
+}
+/* Breathe in slowly — don't announce, don't excite */
+@keyframes ilbreathe{
+  0%{opacity:0}
+  30%{opacity:.55}
+  70%{opacity:.72}
+  100%{opacity:.55}
+}
+/* No subtitle. No instruction. Just the name, barely there. */
+
+/* HUD */
+#hud{position:fixed;inset:0;z-index:30;pointer-events:none}
+#label{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+  color:#fff;font-size:clamp(6px,.9vw,9px);letter-spacing:2px;
+  padding:7px 13px;background:rgba(6,4,10,.72);border:1px solid rgba(255,255,255,.075);
+  opacity:0;transition:opacity .18s;text-shadow:2px 2px 0 #000;white-space:nowrap;
+  backdrop-filter:blur(8px);
+}
+#label.show{opacity:1}
+#back{
+  position:fixed;top:16px;left:16px;z-index:31;font-size:clamp(5px,.8vw,8px);letter-spacing:1px;
+  color:rgba(255,255,255,.5);padding:8px 12px;background:rgba(6,4,10,.85);
+  border:1px solid rgba(255,255,255,.1);opacity:0;pointer-events:none;transition:opacity .25s;
+}
+#back.show{opacity:1;pointer-events:auto;cursor:none}
+#back:hover{color:#fff;border-color:rgba(255,255,255,.3)}#wm{position:fixed;bottom:10px;right:14px;font-size:6px;letter-spacing:3px;color:rgba(224,64,251,.14)}
+#clock{display:none} /* v0.35: clock is now a physical in-room controller, not a HUD item */
+
+
+/* Focus UI panel */
+#focusUi{
+  position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
+  z-index:35;display:flex;gap:8px;align-items:center;
+  pointer-events:none;opacity:0;transition:opacity .3s ease;
+}
+#focusUi.show{opacity:1;pointer-events:auto}
+.fcard{
+  background:rgba(6,4,10,.88);border:1px solid rgba(255,255,255,.09);
+  padding:12px 14px;backdrop-filter:blur(10px);min-width:270px;
+  box-shadow:0 0 30px rgba(0,0,0,.35),0 0 60px rgba(0,0,0,.15);
+}
+.ftitle{font-size:7px;letter-spacing:2px;color:#fff;margin-bottom:10px;opacity:.7}
+.frow{display:flex;gap:7px;align-items:center;justify-content:center;flex-wrap:wrap}
+.btn,.chip{
+  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);
+  color:rgba(255,255,255,.65);padding:8px 11px;font-size:6px;font-family:inherit;
+  letter-spacing:1px;pointer-events:auto;cursor:none;transition:all .15s;user-select:none;
+}
+.btn:hover,.chip:hover,.chip.on,.btn.on{
+  color:#fff;border-color:rgba(255,255,255,.38);background:rgba(255,255,255,.07);
+}
+.rvol{display:flex;align-items:center;gap:10px;margin-top:9px}
+.rvol span{font-size:6px;color:rgba(255,255,255,.4)}
+input[type=range]{width:100%;appearance:none;height:4px;background:#1a1428;border:1px solid #3e2e60;outline:none;cursor:none}
+input[type=range]::-webkit-slider-thumb{appearance:none;width:12px;height:18px;background:#d0bbff;box-shadow:0 0 8px rgba(200,170,255,.7)}
+#moodUi{display:none}
+#timeUi{position:fixed;left:50%;bottom:64px;z-index:36;display:flex;gap:6px;pointer-events:none;opacity:0;transform:translate(-50%,8px);transition:opacity .18s ease,transform .18s ease}
+#timeUi.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.mchip{border:1px solid rgba(255,255,255,.1);background:rgba(6,4,10,.7);color:rgba(255,255,255,.48);padding:7px 9px;font-size:6px;font-family:inherit;letter-spacing:1px;cursor:none;backdrop-filter:blur(8px)}
+.mchip.on,.mchip:hover{color:#fff;border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.06)}
+.chip[data-weather],.chip[data-time]{min-width:54px;text-align:center}
+.hidden{display:none}

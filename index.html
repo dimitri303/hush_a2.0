@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hush OS</title>
+<style>
+  :root{
+    --bg:#07060b;
+    --panel:rgba(8,11,18,.78);
+    --panel-border:rgba(154,204,255,.14);
+    --text:#dce6f2;
+    --muted:#8ea1b7;
+    --cyan:#89dfff;
+    --violet:#c59dff;
+    --amber:#ffce8a;
+    --pink:#ff8fd4;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:radial-gradient(circle at 50% 30%, #171324 0%, #09070d 55%, #040308 100%);font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--text);overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center}
+  #wrap{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+  #c{display:block;image-rendering:auto;box-shadow:0 0 0 1px rgba(255,255,255,.04), 0 25px 80px rgba(0,0,0,.5);border-radius:12px}
+  #overlay{position:absolute;inset:0;pointer-events:none}
+  #hud{position:absolute;inset:0;pointer-events:none}
+  #wm{position:absolute;left:22px;bottom:16px;padding:8px 12px;border:1px solid rgba(255,255,255,.08);background:rgba(8,10,16,.42);backdrop-filter:blur(10px);font-size:12px;letter-spacing:.16em;color:#90a3bb}
+  #label{position:absolute;left:50%;top:20px;transform:translateX(-50%);padding:8px 14px;background:rgba(5,8,13,.6);border:1px solid rgba(255,255,255,.08);font-size:12px;letter-spacing:.18em;color:var(--cyan);opacity:0;transition:.24s ease}
+  #label.show{opacity:1}
+  #back{position:absolute;left:22px;top:20px;padding:10px 14px;background:var(--panel);border:1px solid var(--panel-border);font-size:12px;letter-spacing:.18em;color:#d8e2ef;opacity:0;pointer-events:none;transition:.24s ease;cursor:pointer}
+  #back.show{opacity:1;pointer-events:auto}
+  #clock{position:absolute;right:22px;top:20px;min-width:132px;padding:10px 14px;background:var(--panel);border:1px solid var(--panel-border);backdrop-filter:blur(10px);font-size:11px;letter-spacing:.14em;line-height:1.35;text-align:right;pointer-events:auto;cursor:pointer;user-select:none}
+  #clock .time{display:block;font-size:26px;letter-spacing:.08em;color:#b7ddff;font-weight:700}
+  #clock .mode{display:block;color:#b7a6ff}
+  #focusUi{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:12px;align-items:flex-end;pointer-events:none}
+  .fcard{width:min(92vw,380px);padding:14px 14px 12px;background:rgba(7,10,16,.82);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(14px);opacity:0;transform:translateY(18px);transition:.25s ease;pointer-events:none}
+  .fcard.show{opacity:1;transform:translateY(0);pointer-events:auto}
+  .ftitle{font-size:12px;letter-spacing:.2em;color:#b2c4db;margin-bottom:10px}
+  .frow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .chip,.btn,.mchip{padding:8px 10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);color:var(--text);font-size:11px;letter-spacing:.14em;cursor:pointer;user-select:none}
+  .chip.on,.btn.on,.mchip.on{background:rgba(137,223,255,.12);border-color:rgba(137,223,255,.34);color:#cbeeff}
+  .btn.amber.on{background:rgba(255,206,138,.12);border-color:rgba(255,206,138,.35);color:#ffe7c2}
+  .mchip{pointer-events:auto}
+  #timeUi{position:absolute;right:22px;top:114px;display:flex;flex-direction:column;gap:8px;pointer-events:none;opacity:0;transform:translateY(-6px);transition:.22s ease}
+  #timeUi.show{pointer-events:auto;opacity:1;transform:translateY(0)}
+  #init{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%, rgba(28,21,46,.65), rgba(2,2,4,.96));z-index:8;transition:opacity .8s ease, visibility .8s ease}
+  #init.hide{opacity:0;visibility:hidden}
+  .logo{font-size:42px;letter-spacing:.55em;color:#edf4ff;text-indent:.55em}
+  .sub{margin-top:10px;font-size:12px;letter-spacing:.3em;color:#8ca1bc;text-align:center}
+  .loader{position:absolute;bottom:15vh;font-size:11px;letter-spacing:.18em;color:#a6b6c8}
+  a,button,input{font:inherit}
+  @media (max-width:720px){
+    #clock{min-width:116px;padding:8px 10px}
+    #clock .time{font-size:22px}
+    #wm{font-size:11px}
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="1280" height="720"></canvas>
+  <div id="hud">
+    <div id="label"></div>
+    <div id="back">◀ BACK</div>
+    <div id="wm">HUSH OS A2.0</div>
+    <div id="clock">SUITE 27<span class="time" id="clkTxt">22:47</span><span class="mode" id="timeTxt">NIGHT</span></div>
+    <div id="timeUi">
+      <div class="mchip" data-time="day">DAY</div>
+      <div class="mchip" data-time="sunset">SUNSET</div>
+      <div class="mchip" data-time="night">NIGHT</div>
+      <div class="mchip" data-time="cycle">CYCLE</div>
+      <div class="mchip" data-time="auto">AUTO</div>
+    </div>
+    <div id="focusUi">
+      <div class="fcard" id="hifiUi">
+        <div class="ftitle">── HI-FI / MUSIC ──</div>
+        <div class="frow" style="margin-bottom:8px">
+          <div class="chip on" data-source="vinyl">VINYL</div>
+          <div class="chip" data-source="spotify">SPOTIFY</div>
+          <div class="chip" data-source="radio">RADIO</div>
+          <div class="btn amber" id="musicPow">POWER</div>
+        </div>
+        <div class="frow">
+          <div class="btn" id="musicPrev">PREV</div>
+          <div class="btn" id="musicPlay">PLAY / PAUSE</div>
+          <div class="btn" id="musicNext">NEXT</div>
+        </div>
+      </div>
+      <div class="fcard" id="tvUi">
+        <div class="ftitle">── TELEVISION ──</div>
+        <div class="frow" style="margin-bottom:8px">
+          <div class="chip on" data-tvch="0">AMBIENT</div>
+          <div class="chip" data-tvch="1">CITY</div>
+          <div class="chip" data-tvch="2">GLITCH</div>
+          <div class="chip" data-tvch="3">ANIME</div>
+          <div class="btn amber" id="tvPow">POWER</div>
+        </div>
+      </div>
+      <div class="fcard" id="winUi">
+        <div class="ftitle">── WINDOW / WEATHER ──</div>
+        <div class="frow" style="margin-bottom:8px">
+          <div class="btn" id="winToggle">OPEN WINDOW</div>
+          <div class="btn" id="winLean">LEAN OUT</div>
+        </div>
+        <div class="frow">
+          <div class="chip on" data-weather="rain">RAIN</div>
+          <div class="chip" data-weather="snow">SNOW</div>
+          <div class="chip" data-weather="mist">MIST</div>
+          <div class="chip" data-weather="thunderstorm">STORM</div>
+        </div>
+      </div>
+      <div class="fcard" id="holoUi">
+        <div class="ftitle">── HOLOCUBE / MOOD ──</div>
+        <div class="frow">
+          <div class="chip on" data-mood="calm">CALM</div>
+          <div class="chip" data-mood="rain">RAIN</div>
+          <div class="chip" data-mood="neon">NEON</div>
+          <div class="chip" data-mood="midnight">MIDNIGHT</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="init">
+    <div>
+      <div class="logo">HUSH</div>
+      <div class="sub">LOADING</div>
+      <div class="loader" id="loaderTxt">LOADING ASSETS…</div>
+    </div>
+  </div>
+</div>
+<script src="src/app.js"></script>
+</body>
+</html>
