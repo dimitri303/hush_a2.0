@@ -3,6 +3,16 @@ const RW = 1280, RH = 720;
 const canvas = document.getElementById('c');
 const cx = canvas.getContext('2d');
 
+// Hidden video element for anime channel
+const animeVideo = document.createElement('video');
+animeVideo.src = 'assets/anime-video.mp4';
+animeVideo.loop = true;
+animeVideo.muted = true;
+animeVideo.playsInline = true;
+animeVideo.preload = 'auto';
+animeVideo.style.display = 'none';
+document.body.appendChild(animeVideo);
+
 const UI = {
   label: document.getElementById('label'),
   back: document.getElementById('back'),
@@ -143,15 +153,34 @@ const distantLife = Array.from({length:34},()=>({
   next: 2+Math.random()*18, active: 0, dur: 2+Math.random()*7, seed: Math.random()*999
 }));
 
-const rainFar = Array.from({length:80},()=>({x:Math.random(),y:Math.random(),len:6+Math.random()*14,spd:.4+Math.random()*.8,a:.08+Math.random()*.14}));
-const rainGlass = Array.from({length:40},()=>({x:Math.random(),y:Math.random()-.2,len:20+Math.random()*40,spd:.2+Math.random()*.5,a:.12+Math.random()*.22}));
+// ── RAIN SYSTEM ───────────────────────────────────────
+// 3 depth layers: far (behind city), mid (falling past window), near (foreground)
+// Each drop: x,y normalized | vy vertical speed (norm/s) | vx horizontal drift
+//            len streak length px | alpha | layer | phase
+function makeRainLayer(count, vyMin, vyMax, lenMin, lenMax, aMin, aMax) {
+  return Array.from({length: count}, () => ({
+    x: Math.random(),
+    y: Math.random(),
+    vy: vyMin + Math.random() * (vyMax - vyMin),
+    len: lenMin + Math.random() * (lenMax - lenMin),
+    alpha: aMin + Math.random() * (aMax - aMin),
+    phase: Math.random() * Math.PI * 2,
+  }));
+}
+const rainLayers = [
+  makeRainLayer(90,  0.18, 0.38,  5, 14,  0.06, 0.14), // far  — fine, slow, ghostly
+  makeRainLayer(110, 0.42, 0.72, 18, 38,  0.14, 0.28), // mid  — main body of rain
+  makeRainLayer(55,  0.78, 1.10, 38, 72,  0.28, 0.55), // near — fast bright streaks
+];
+// Persistent wind state — gusts shift angle over time
+let windX = -0.04; // slight leftward lean by default
 
 const stars = Array.from({length:180},()=>({
   x:Math.random(), y:Math.random()*.68,
   r:.35+Math.random()*.85, a:.25+Math.random()*.55,
   twinkle:Math.random()*Math.PI*2, twinkleRate:.4+Math.random()*1.1,
 }));
-const MOON = {px:.78, py:.14, r:10};
+const MOON = {px:.78, py:.14, r:32};
 
 const clouds = Array.from({length:6},(_,i)=>({
   x:.08+i*.16+Math.random()*.1, y:.08+Math.random()*.28,
@@ -224,7 +253,8 @@ const ASSETS = {
   mug: 'mug.png',
   recordPlayer: 'record-player.png',
   remote: 'remote.png',
-  cityNight: 'city-night.png',
+  moon:         'moon.png',
+  cityNight:    'city-night.png',
   roomBackplate: 'room-backplate.png',
   table: 'table.png',
   tv: 'tv.png'
@@ -235,38 +265,100 @@ const assetEntries = Object.entries(ASSETS);
 let loadedAssets = 0;
 
 const layout = {
-  room: { x: 0, y: 0, w: RW, h: RH },
-  win: { x: 278, y: 120, w: 718, h: 300 },
-  chair:        { x: 8,   y: 400, w: 236, h: 296 },
-  lamp:         { x: 152, y: 328, w: 104, h: 216 },
-  hifi:         { x: 304, y: 388, w: 310, h:  56 },
-  recordPlayer: { x: 316, y: 340, w: 184, h:  72 },
-  headphones:   { x: 516, y: 386, w: 104, h:  40 },
-  tv:           { x: 924, y: 340, w: 280, h: 224 },
-  table:        { x: 380, y: 536, w: 530, h: 184 },
-  mug:          { x: 456, y: 564, w:  96, h:  88 },
-  remote:       { x: 712, y: 584, w:  72, h:  48 },
-  books:        { x: 796, y: 552, w: 156, h:  92 },
-  cube:         { x: 628, y: 548, w:  56, h:  40 },
-  cubeGlow:     { x: 656, y: 520 },
-  screen:       { x: 960, y: 372, w: 116, h:  92 },
-  rackDisplay:  { x: 384, y: 424, w: 216, h:  20 },
-  rackKnobs:    { x: 628, y: 436 },
-  recordSleeve: { x: 288, y: 388, w:  76, h:  76 }
+  room:         { x: 0, y: 0, w: RW, h: RH },
+  win:          { x: 278, y: 120, w: 718, h: 300 },
+  chair:        { x: 98, y: 376, w: 328, h: 296 },
+  lamp:         { x: 270, y: 299, w: 104, h: 216 },
+  hifi:         { x: 335, y: 269, w: 693, h: 275 },
+  recordPlayer: { x: 317, y: 393, w: 184, h: 59 },
+  headphones:   { x: 479, y: 410, w: 71, h: 41 },
+  tv:           { x: 818, y: 343, w: 207, h: 127 },
+  table:          { x: 464, y: 374, w: 618, h: 483 },
+  mug:          { x: 544, y: 562, w: 96, h: 88 },
+  remote:       { x: 713, y: 601, w: 72, h: 48 },
+  books:        { x: 799, y: 582, w: 156, h: 92 },
+  cube:         { x: 670, y: 594, w: 56, h: 40 },
+  cubeGlow:     { x: 683, y: 593 },
+  screen:       { x: 857, y: 369, w: 85, h: 71 },
+  rackDisplay:  { x: 491, y: 459, w: 143, h: 11 },
+  rackKnobs:    { x: 581, y: 479 },
+  recordSleeve: { x: 436, y: 464, w: 45, h: 39 },
+  moon:         { x: 849, y: 131, w: 104, h: 82 },
 };
 
-const hotspots = [
-  { id: 'window', label: 'the window',    x: layout.win.x, y: layout.win.y, w: layout.win.w, h: layout.win.h, card: 'winUi',  zoom: { s: 1.65, ax: 0.5,  ay: 0.33 } },
-  { id: 'hifi',   label: 'the hi-fi',     x: 288, y: 336, w: 420, h: 116, card: 'hifiUi', zoom: { s: 2.1,  ax: 0.35, ay: 0.56 } },
-  { id: 'tv',     label: 'the television',x: layout.tv.x, y: layout.tv.y, w: layout.tv.w, h: layout.tv.h, card: 'tvUi',   zoom: { s: 2.25, ax: 0.78, ay: 0.52 } },
-  { id: 'holo',   label: 'the holocube',  x: 586, y: 488, w: 152, h: 144, card: 'holoUi', zoom: { s: 2.4,  ax: 0.5,  ay: 0.79 } },
-  { id: 'lamp',   label: 'the lamp',      x: 92,  y: 304, w: 140, h: 236, card: null,     zoom: { s: 1.9,  ax: 0.22, ay: 0.55 } }
+// ── TEMP LAYOUT DEBUGGER ──────────────────────────────
+// Set to false when the scene layout is locked.
+let DEBUG_LAYOUT = false;
+let debugTarget = 'hifi';
+
+const debugTargets = [
+  'win',
+  'hifi',
+  'rackDisplay',
+  'rackKnobs',
+  'recordPlayer',
+  'recordSleeve',
+  'headphones',
+  'tv',
+  'screen',
+  'chair',
+  'lamp',
+  'table',
+  'mug',
+  'remote',
+  'books',
+  'cube',
+  'cubeGlow',
+  'moon'
 ];
 
+
+const hotspots = [
+  { id: 'lamp',   label: 'the lamp',      x: 92,  y: 304, w: 140, h: 236, card: null,     zoom: { s: 1.9,  ax: 0.22, ay: 0.55 } },
+  { id: 'hifi',   label: 'the hi-fi',     x: 338, y: 440, w: 390, h: 160, card: 'hifiUi', zoom: { s: 2.1, ax: 0.5, ay: 0.5 } },
+  { id: 'tv',     label: 'the television',x: layout.tv.x, y: layout.tv.y, w: layout.tv.w, h: layout.tv.h, card: 'tvUi',   zoom: { s: 2.25, ax: 0.5, ay: 0.5 } },
+  { id: 'holo',   label: 'the holocube',  x: 586, y: 488, w: 152, h: 144, card: 'holoUi', zoom: { s: 2.4,  ax: 0.5,  ay: 0.79 } },
+  { id: 'window', label: 'the window',    x: layout.win.x, y: layout.win.y, w: layout.win.w, h: layout.win.h, card: 'winUi',  zoom: { s: 1.65, ax: 0.5,  ay: 0.33 } },
+];
+
+// ── HOTSPOT SYNC ──────────────────────────────────────
+// Keep clickable areas aligned with the live layout object.
+// This deliberately preserves the existing hotspot structure, so it does not
+// affect asset loading or draw order.
+const hotspotLayoutMap = {
+  window: 'win',
+  hifi: 'rackDisplay',
+  tv: 'tv',
+  holo: 'cube',
+  lamp: 'lamp'
+};
+
+function syncHotspotsFromLayout() {
+  hotspots.forEach(h => {
+    const key = hotspotLayoutMap[h.id];
+    const r = key ? layout[key] : null;
+    if (!r || r.x == null || r.y == null) return;
+
+    if (r.w != null && r.h != null) {
+      h.x = r.x;
+      h.y = r.y;
+      h.w = r.w;
+      h.h = r.h;
+    } else {
+      // Defensive support for point-style targets.
+      h.x = r.x - 24;
+      h.y = r.y - 24;
+      h.w = 48;
+      h.h = 48;
+    }
+  });
+}
+
+
 const tracks = [
-  { title: 'Midnight Dreams', subtitle: 'Plush Gun', coverHue: '#8ed6ff' },
+  { title: 'Blue Potion', subtitle: 'Plush Gun', coverHue: '#8ed6ff' },
   { title: 'Tokyo Static', subtitle: 'Hush Radio', coverHue: '#ff94db' },
-  { title: 'Rain in Neon', subtitle: 'Suite 27', coverHue: '#b1a1ff' }
+  { title: 'Hush', subtitle: 'Suite 27', coverHue: '#b1a1ff' }
 ];
 
 function resize() {
@@ -275,7 +367,7 @@ function resize() {
   SCALE = Math.min(sx, sy);
   canvas.style.width = `${RW * SCALE}px`;
   canvas.style.height = `${RH * SCALE}px`;
-  applyFocusTransform();
+  applyFocusTransform(true);
 }
 addEventListener('resize', resize);
 
@@ -532,18 +624,37 @@ function drawRoomReflection(x,y,w,h){
 }
 
 function drawCondensation(x,y,w,h){
-  if(!state.winOpen && state.winAnim<0.05) return; // only when window open
+  const glassClosed = 1 - state.winAnim;
+  if(glassClosed < 0.05) return;
+  if(!(state.weather.rain || state.weather.thunderstorm || state.weather.mist)) return;
+
   cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
-  cx.globalCompositeOperation='screen';
-  state.condensation.forEach(c=>{
-    const px=x+c.x*w, py=y+c.y*h;
-    const fog=cx.createRadialGradient(px,py,0,px,py,c.r);
-    fog.addColorStop(0,`rgba(200,220,255,${c.alpha})`);
-    fog.addColorStop(0.6,`rgba(180,200,255,${c.alpha*.4})`);
-    fog.addColorStop(1,'transparent');
-    cx.fillStyle=fog; cx.fillRect(px-c.r,py-c.r,c.r*2,c.r*2);
+
+  // Fade mask — condensation pools in the bottom 30% only
+  const fadeH = h * 0.32;
+  const fadeY = y + h - fadeH;
+  const fade = cx.createLinearGradient(0, fadeY - h * 0.08, 0, y + h);
+  fade.addColorStop(0, 'transparent');
+  fade.addColorStop(0.3, `rgba(170,195,230,${glassClosed * 0.06})`);
+  fade.addColorStop(1, `rgba(160,190,225,${glassClosed * 0.13})`);
+  cx.fillStyle = fade;
+  cx.fillRect(x, fadeY - h * 0.08, w, fadeH + h * 0.08);
+
+  // Individual condensation patches — y biased toward bottom
+  cx.globalAlpha = glassClosed * 0.7;
+  state.condensation.forEach(c => {
+    const px = x + c.x * w;
+    const py = fadeY + c.y * fadeH * 0.9; // only in bottom band
+    const r = c.r * 14;
+    const fog = cx.createRadialGradient(px, py, 0, px, py, r);
+    fog.addColorStop(0, `rgba(200,218,245,${c.alpha * 0.28})`);
+    fog.addColorStop(0.5, `rgba(180,208,238,${c.alpha * 0.10})`);
+    fog.addColorStop(1, 'transparent');
+    cx.fillStyle = fog;
+    cx.fillRect(px - r, py - r, r * 2, r * 2);
   });
-  cx.globalCompositeOperation='source-over';
+
+  cx.globalAlpha = 1;
   cx.restore();
 }
 
@@ -597,19 +708,29 @@ function drawWindowView(dt) {
   }
   if(starA>.01){
     cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
-    const mx=x+MOON.px*w + px*6, my=y+MOON.py*(horizon-y);
     const moonA=clamp(starA*1.4,0,1);
-    const mg=cx.createRadialGradient(mx,my,0,mx,my,MOON.r);
-    mg.addColorStop(0,`rgba(230,235,210,${moonA*.92})`);
-    mg.addColorStop(.6,`rgba(200,215,185,${moonA*.70})`);
-    mg.addColorStop(1,'transparent');
-    cx.fillStyle=mg; cx.beginPath(); cx.arc(mx,my,MOON.r+4,0,Math.PI*2); cx.fill();
-    cx.globalCompositeOperation='source-over';
-    cx.fillStyle=`rgba(230,235,210,${moonA*.88})`;
-    cx.beginPath(); cx.arc(mx,my,MOON.r,0,Math.PI*2); cx.fill();
-    cx.globalCompositeOperation='destination-out';
-    cx.fillStyle='rgba(0,0,0,1)';
-    cx.beginPath(); cx.arc(mx+MOON.r*.52,my-MOON.r*.12,MOON.r*.88,0,Math.PI*2); cx.fill();
+    const mx = layout.moon.x + layout.moon.w * 0.5;
+    const my = layout.moon.y + layout.moon.h * 0.5;
+    const r  = layout.moon.w * 0.5;
+
+    // Soft atmospheric halo behind the moon
+    const halo=cx.createRadialGradient(mx,my,r*.4,mx,my,r*2.8);
+    halo.addColorStop(0,`rgba(200,215,240,${moonA*.12})`);
+    halo.addColorStop(1,'transparent');
+    cx.fillStyle=halo; cx.fillRect(mx-r*3,my-r*3,r*6,r*6);
+
+    // Moon asset — 'screen' blend makes black background invisible
+    const img=images.moon;
+    if(img&&img.complete&&img.naturalWidth){
+      cx.globalCompositeOperation='screen';
+      cx.globalAlpha=moonA*.95;
+      cx.drawImage(img, mx-r, my-r, r*2, r*2);
+      cx.globalAlpha=1;
+    } else {
+      cx.fillStyle=`rgba(220,225,210,${moonA*.88})`;
+      cx.beginPath(); cx.arc(mx,my,r,0,Math.PI*2); cx.fill();
+    }
+
     cx.globalCompositeOperation='source-over';
     cx.restore();
   }
@@ -617,9 +738,8 @@ function drawWindowView(dt) {
   // City PNG asset — drawn over sky, stars show through transparent roofline
   drawCityAsset(x,y,w,h);
   drawCityTimeAtmosphere(x,y,w,h,horizon);
-  drawDistantLife(x,y,w,h);
-  drawCityLifeLayer(x,y,w,h,horizon);
-  drawBillboardLife(x,y,w,h);
+  drawNeonLife(x,y,w,h);
+  drawDroneLights(x,y,w,h);
 
   // Elevated highway
   const roadY = y+h-16;
@@ -656,15 +776,8 @@ function drawWindowView(dt) {
   cx.fillRect(x,roadY+10,w,y+h-roadY-10);
   cx.restore();
 
-  // Far rain
-  if(state.weather.rain || state.weather.thunderstorm) rainFar.forEach(r=>{
-    r.y+=r.spd*.0018; if(r.y>1.1)r.y=-.08;
-    const rx=x+r.x*w, ry=y+r.y*h;
-    if(rx<x||rx>x+w||ry<y||ry>y+h)return;
-    cx.strokeStyle=`rgba(180,215,255,${r.a})`;
-    cx.lineWidth=.6;
-    cx.beginPath();cx.moveTo(rx,ry);cx.lineTo(rx-r.len*.1,ry+r.len);cx.stroke();
-  });
+  // Rain — layered depth system
+  if(state.weather.rain || state.weather.thunderstorm) drawRain(x,y,w,h);
 
   // Snow
   if(state.weather.snow) drawSnow(x,y,w,h);
@@ -703,6 +816,9 @@ function drawWindowView(dt) {
 
   // Room reflection in glass at night
   drawRoomReflection(x,y,w,h);
+
+  // Glass pane — visible when closed, fades as window opens
+  drawWindowGlass(x,y,w,h);
 
   // Glass rain droplets
   drawGlassRainLayer(x,y,w,h);
@@ -827,96 +943,229 @@ function drawCityTimeAtmosphere(x,y,w,h,horizon){
   cx.restore();
 }
 
-function drawDistantLife(x,y,w,h){
-  cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
-  distantLife.forEach(l=>{
-    if(l.active<=0) return;
-    const px=x+l.x*w, py=y+l.y*h;
-    const pulse=.55+Math.sin(state.t*2.1+l.phase)*.25;
-    const alpha=clamp(.28+pulse*.28,0,.7);
-    if(l.type==='tv'){
-      const tvGlow=.4+Math.sin(state.t*8.5+l.seed)*.22;
-      cx.fillStyle=`rgba(120,210,255,${clamp(tvGlow,.1,.75)})`;
-      rr(cx,px,py,l.w,l.h*.62,1.5); cx.fill();
-    }
-    if(l.type==='beacon'){
-      const blink=Math.sin(state.t*4.2+l.seed)>.68?1:.18;
-      cx.fillStyle=`rgba(255,70,120,${alpha*blink})`;
-      cx.beginPath(); cx.arc(px,py,1.8,0,Math.PI*2); cx.fill();
-    }
+// Neon strip positions matched to the city-night.png asset.
+// Each entry: x (0-1 across window), yTop, yBot (0-1 down window),
+// r,g,b of the neon colour, and a unique phase offset.
+const NEON_ANCHORS = [
+  { x:0.09, yt:0.12, yb:0.72, r:255, g:140, b: 60, ph:0.00 }, // amber left
+  { x:0.19, yt:0.08, yb:0.65, r:255, g: 50, b:200, ph:1.10 }, // magenta
+  { x:0.28, yt:0.18, yb:0.60, r:255, g: 60, b:220, ph:2.30 }, // magenta
+  { x:0.38, yt:0.14, yb:0.55, r: 60, g:200, b:255, ph:0.80 }, // cyan
+  { x:0.48, yt:0.06, yb:0.70, r:255, g: 40, b:200, ph:3.50 }, // magenta tall
+  { x:0.54, yt:0.10, yb:0.68, r: 80, g:210, b:255, ph:1.70 }, // cyan
+  { x:0.66, yt:0.16, yb:0.58, r:255, g: 55, b:210, ph:2.90 }, // magenta
+  { x:0.74, yt:0.12, yb:0.62, r:255, g: 80, b:180, ph:0.40 }, // pink-magenta
+  { x:0.83, yt:0.10, yb:0.64, r: 60, g:190, b:255, ph:1.90 }, // cyan right
+  { x:0.90, yt:0.18, yb:0.55, r:255, g:150, b: 40, ph:3.10 }, // amber right
+];
+
+function drawNeonLife(x, y, w, h) {
+  const tp = timeProfile();
+  const intensity = 0.12 + tp.sunset * 0.18 + tp.night * 0.55;
+  if (intensity < 0.05) return;
+
+  cx.save();
+  cx.beginPath(); cx.rect(x, y, w, h); cx.clip();
+  cx.globalCompositeOperation = 'lighter';
+
+  NEON_ANCHORS.forEach(n => {
+    const t = state.t;
+    const breathe = 0.55 + 0.35 * Math.sin(t * 0.38 + n.ph)
+                       + 0.10 * Math.sin(t * 1.12 + n.ph * 1.7);
+    const flicker = Math.sin(t * 7.4 + n.ph) > 0.91
+      ? 0.3 + Math.random() * 0.4
+      : 1.0;
+    const alpha = breathe * flicker * intensity;
+
+    const nx  = x + n.x * w;
+    const ny1 = y + n.yt * h;
+    const ny2 = y + n.yb * h;
+    const midY = (ny1 + ny2) / 2;
+    const stripH = ny2 - ny1;
+
+    const g = cx.createRadialGradient(nx, midY, 0, nx, midY, stripH * 0.55);
+    g.addColorStop(0,   `rgba(${n.r},${n.g},${n.b},${(alpha * 0.18).toFixed(3)})`);
+    g.addColorStop(0.4, `rgba(${n.r},${n.g},${n.b},${(alpha * 0.07).toFixed(3)})`);
+    g.addColorStop(1,   'rgba(0,0,0,0)');
+    cx.fillStyle = g;
+    cx.fillRect(nx - stripH * 0.55, ny1, stripH * 1.1, stripH);
+
+    const core = cx.createLinearGradient(nx - 8, ny1, nx + 8, ny1);
+    core.addColorStop(0,   'rgba(0,0,0,0)');
+    core.addColorStop(0.5, `rgba(${n.r},${n.g},${n.b},${(alpha * 0.22).toFixed(3)})`);
+    core.addColorStop(1,   'rgba(0,0,0,0)');
+    cx.fillStyle = core;
+    cx.fillRect(nx - 8, ny1, 16, stripH);
   });
-  distantLife.forEach(l=>{
-    l.active=Math.max(0,l.active-0.016);
-    if(l.active<=0 && state.t>l.next){
-      l.active=l.dur; l.next=state.t+2+Math.random()*18;
-    }
+
+  cx.globalAlpha = 1;
+  cx.globalCompositeOperation = 'source-over';
+  cx.restore();
+}
+
+function drawDroneLights(x, y, w, h) {
+  const tp = timeProfile();
+  const neon = 0.18 + tp.sunset * 0.45 + tp.night * 1.0;
+  cx.save(); cx.beginPath(); cx.rect(x, y, w, h); cx.clip();
+  droneLights.forEach(d => {
+    const dx = x + d.x * w, dy = y + d.y * h + Math.sin(state.t * 0.7 + d.phase) * 4;
+    cx.save(); cx.globalCompositeOperation = 'lighter';
+    const blink = 0.45 + Math.max(0, Math.sin(state.t * 3.2 + d.phase)) * 0.55;
+    cx.fillStyle = d.colour; cx.globalAlpha = blink * (0.3 + 0.7 * neon);
+    cx.beginPath(); cx.arc(dx, dy, d.size, 0, Math.PI * 2); cx.fill();
+    cx.globalAlpha *= 0.22; cx.fillRect(dx - 18, dy, 36, 1);
+    cx.restore();
   });
   cx.restore();
 }
 
 function drawSnow(x, y, w, h) {
+  const tp = timeProfile();
   cx.save();
-  cx.fillStyle = 'rgba(245,250,255,.75)';
-  state.snow.forEach(p => {
-    cx.beginPath();
-    cx.arc(x + p.x, y + p.y, p.r, 0, Math.PI * 2);
-    cx.fill();
-  });
-  cx.restore();
-}
+  cx.beginPath(); cx.rect(x, y, w, h); cx.clip();
 
-function drawCityLifeLayer(x,y,w,h,horizon){
-  const tp=timeProfile();
-  const neon=0.18+tp.sunset*.45+tp.night*1.0;
-  cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
-  droneLights.forEach(d=>{
-    const dx=x+d.x*w, dy=y+d.y*h+Math.sin(state.t*.7+d.phase)*4;
-    cx.save(); cx.globalCompositeOperation='lighter';
-    const blink=0.45+Math.max(0,Math.sin(state.t*3.2+d.phase))*.55;
-    cx.fillStyle=d.colour; cx.globalAlpha=blink*(0.3+0.7*neon);
-    cx.beginPath(); cx.arc(dx,dy,d.size,0,Math.PI*2); cx.fill();
-    cx.globalAlpha*=0.22; cx.fillRect(dx-18,dy,36,1);
+  const nr = Math.round(228 + tp.sunset * 12);
+  const ng = Math.round(238 + tp.sunset * 8);
+  const col = `${nr},${ng},255`;
+
+  const glows = [0, 3, 7];
+  snowFlakes.forEach((layer, li) => {
+    cx.save();
+    cx.shadowColor = `rgba(${col},0.85)`;
+    cx.shadowBlur  = glows[li];
+    cx.fillStyle   = `rgba(${col},1)`;
+    layer.forEach(f => {
+      const fx = x + f.x * w + Math.sin(state.t * f.phaseSpd + f.phase) * f.wobble * w;
+      const fy = y + f.y * h;
+      if (fy < y - 4 || fy > y + h + 4) return;
+      cx.globalAlpha = f.alpha;
+      cx.beginPath();
+      cx.arc(fx, fy, f.r, 0, Math.PI * 2);
+      cx.fill();
+    });
     cx.restore();
   });
-  apartmentMoments.forEach(a=>{
-    if(a.active<=0) return;
-    const px=x+((a.bx*CITY_W)/CITY_W)*w;
-    if(px<x||px>x+w) return;
-    const groundY=y+h-8-a.li*12;
-    const py=groundY-a.bh*(0.15+Math.random()*0.65);
-    const fade=clamp(Math.min(a.active,1),0,1);
-    const pulse=0.7+Math.sin(state.t*2.4+a.phase)*.22;
-    const alpha=fade*pulse*(0.35+neon*.4);
-    if(a.kind==='tv'){ cx.fillStyle=`rgba(120,220,255,${alpha})`; rr(cx,px,py,a.w,a.h*.65,2); cx.fill(); }
-    if(a.kind==='curtain'){ cx.fillStyle=`rgba(255,205,150,${alpha*.72})`; rr(cx,px,py,a.w,a.h,2); cx.fill(); cx.fillStyle=`rgba(12,8,18,${alpha*.55})`; cx.fillRect(px+a.w*.48,py,1,a.h); }
-    if(a.kind==='silhouette'){ cx.fillStyle=`rgba(255,210,150,${alpha*.42})`; rr(cx,px,py,a.w,a.h,2); cx.fill(); }
-    if(a.kind==='lamp'){ cx.fillStyle=`rgba(255,185,105,${alpha*.55})`; cx.fillRect(px,py,a.w,2); }
-  });
+
+  // Soft snow drift at the sill
+  const driftA = 0.10 + tp.night * 0.07;
+  const drift = cx.createLinearGradient(0, y + h * 0.88, 0, y + h);
+  drift.addColorStop(0, 'transparent');
+  drift.addColorStop(0.6, `rgba(${col},${driftA * 0.5})`);
+  drift.addColorStop(1,   `rgba(${col},${driftA})`);
+  cx.globalAlpha = 1;
+  cx.fillStyle = drift;
+  cx.fillRect(x, y + h * 0.88, w, h * 0.12);
+
   cx.restore();
 }
 
-function drawBillboardLife(x,y,w,h){
-  const tp=timeProfile();
-  const neon=0.15+tp.sunset*.45+tp.night*1.0;
+function drawWindowGlass(x,y,w,h){
+  const glassClosed = 1 - state.winAnim;
+  if(glassClosed < 0.01) return;
+
   cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
-  cx.globalCompositeOperation='lighter';
-  billboardGlitches.forEach((b,i)=>{
-    const bx=x+b.x*w, by=y+b.y*h;
-    const glitch=Math.sin(state.t*1.2+b.phase)>.88;
-    const flicker=glitch?1:0.45+Math.sin(state.t*.8+b.phase)*.18;
-    cx.globalAlpha=clamp(flicker*neon,0,.95);
-    const bg=cx.createLinearGradient(bx,by,bx+b.w,by+b.h);
-    bg.addColorStop(0,b.colourA); bg.addColorStop(1,b.colourB);
-    cx.fillStyle=bg; rr(cx,bx,by,b.w,b.h,3); cx.fill();
-    if(glitch){ cx.fillStyle='rgba(255,255,255,.65)'; cx.fillRect(bx+Math.random()*b.w,by+Math.random()*b.h,12+Math.random()*26,2); }
+
+  // Base glass tint — cool blue-grey transparency
+  cx.globalAlpha = glassClosed * 0.13;
+  cx.fillStyle = 'rgba(160,190,230,1)';
+  cx.fillRect(x,y,w,h);
+
+  // Subtle darkening toward edges (glass thickness effect)
+  cx.globalAlpha = glassClosed * 0.10;
+  const edge = cx.createRadialGradient(x+w*.5,y+h*.5,h*.2,x+w*.5,y+h*.5,h*.8);
+  edge.addColorStop(0,'transparent');
+  edge.addColorStop(1,'rgba(10,8,24,1)');
+  cx.fillStyle=edge; cx.fillRect(x,y,w,h);
+
+  // Diagonal highlight — light catching the pane
+  cx.globalAlpha = glassClosed * 0.06;
+  const sheen = cx.createLinearGradient(x,y,x+w*.6,y+h);
+  sheen.addColorStop(0,'rgba(255,255,255,1)');
+  sheen.addColorStop(0.4,'rgba(200,220,255,0.4)');
+  sheen.addColorStop(1,'transparent');
+  cx.fillStyle=sheen; cx.fillRect(x,y,w,h);
+
+  // Thin bright edge along top — reflected ceiling neon
+  cx.globalAlpha = glassClosed * 0.18;
+  const topEdge = cx.createLinearGradient(x,y,x,y+h*.06);
+  topEdge.addColorStop(0,'rgba(180,120,255,0.9)');
+  topEdge.addColorStop(1,'transparent');
+  cx.fillStyle=topEdge; cx.fillRect(x,y,w,h*.06);
+
+  cx.globalAlpha=1;
+  cx.restore();
+}
+
+function drawRain(x, y, w, h) {
+  cx.save();
+  cx.beginPath(); cx.rect(x, y, w, h); cx.clip();
+
+  const storm = state.weather.thunderstorm;
+  const intensityMul = storm ? 1.35 : 1.0;
+  // Wind angle: slight natural lean plus slow gust oscillation
+  const windAngle = windX + Math.sin(state.t * 0.11) * 0.022;
+
+  rainLayers.forEach((layer, li) => {
+    const lineW = li === 0 ? 0.55 : li === 1 ? 0.85 : 1.1;
+    const col = li === 0
+      ? [170, 205, 245] // far — cool grey-blue
+      : li === 1
+      ? [190, 220, 255] // mid — brighter blue-white
+      : [220, 235, 255]; // near — almost white
+
+    layer.forEach(d => {
+      const px = x + d.x * w;
+      const py = y + d.y * h;
+
+      // Streak end point — angled by wind
+      const ex = px + windAngle * d.len * 3;
+      const ey = py + d.len;
+
+      if (py > y + h + 10 || py < y - d.len) return;
+
+      const alpha = d.alpha * intensityMul;
+
+      // Gradient: faint head → bright core (1/3 down) → transparent tail
+      const g = cx.createLinearGradient(px, py, ex, ey);
+      g.addColorStop(0,   `rgba(${col},${alpha * 0.1})`);
+      g.addColorStop(0.2, `rgba(${col},${alpha * 0.85})`);
+      g.addColorStop(0.6, `rgba(${col},${alpha * 0.55})`);
+      g.addColorStop(1,   `rgba(${col},0)`);
+
+      cx.strokeStyle = g;
+      cx.lineWidth = lineW;
+      cx.globalAlpha = 1;
+      cx.beginPath();
+      cx.moveTo(px, py);
+      cx.lineTo(ex, ey);
+      cx.stroke();
+
+      // Tiny splash at bottom of near-layer drops that hit the sill
+      if (li === 2 && py + d.len > y + h * 0.92 && py + d.len < y + h + 4) {
+        cx.globalAlpha = alpha * 0.4;
+        cx.strokeStyle = `rgba(${col},1)`;
+        cx.lineWidth = 0.6;
+        for (let s = 0; s < 3; s++) {
+          const ang = -Math.PI * 0.15 + s * Math.PI * 0.15;
+          cx.beginPath();
+          cx.moveTo(ex, ey);
+          cx.lineTo(ex + Math.cos(ang) * 4, ey + Math.sin(ang) * 3);
+          cx.stroke();
+        }
+      }
+    });
   });
-  cx.globalAlpha=1; cx.globalCompositeOperation='source-over';
+
+  cx.globalAlpha = 1;
   cx.restore();
 }
 
 function drawGlassRainLayer(x,y,w,h){
   if(!(state.weather.rain||state.weather.thunderstorm)) return;
+  const glassClosed = 1 - state.winAnim;
+  if(glassClosed < 0.05) return; // no glass to stick to when open
   cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
+  cx.globalAlpha = glassClosed;
   glassDroplets.forEach(d=>{
     const px=x+d.x*w+Math.sin(state.t*.8+d.wobble)*2;
     const py=y+d.y*h;
@@ -930,6 +1179,7 @@ function drawGlassRainLayer(x,y,w,h){
     cx.quadraticCurveTo(px+Math.sin(d.wobble)*2,py+len*.45,px-2,py+len);
     cx.stroke();
   });
+  cx.globalAlpha=1;
   cx.restore();
 }
 
@@ -1055,6 +1305,86 @@ function drawCityLayer(x, y, w, h, offset, heightScale, hMult, alpha, col) {
   cx.restore();
 }
 
+
+function drawDebugLayout() {
+  if (!DEBUG_LAYOUT) return;
+
+  const target = layout[debugTarget];
+  if (!target) return;
+
+  cx.save();
+
+  debugTargets.forEach(name => {
+    const r = layout[name];
+    if (!r || r.x == null || r.y == null) return;
+
+    const hasSize = r.w != null && r.h != null;
+
+    cx.strokeStyle = name === debugTarget
+      ? 'rgba(255,255,120,.96)'
+      : 'rgba(120,220,255,.28)';
+
+    cx.fillStyle = name === debugTarget
+      ? 'rgba(255,255,120,.14)'
+      : 'rgba(120,220,255,.05)';
+
+    cx.lineWidth = name === debugTarget ? 2 : 1;
+    cx.setLineDash(name === debugTarget ? [] : [6, 5]);
+
+    if (hasSize) {
+      cx.strokeRect(r.x, r.y, r.w, r.h);
+      cx.fillRect(r.x, r.y, r.w, r.h);
+      cx.font = '12px monospace';
+      cx.fillStyle = name === debugTarget
+        ? 'rgba(255,255,120,.96)'
+        : 'rgba(160,220,255,.62)';
+      cx.fillText(name, r.x + 4, r.y - 6);
+    } else {
+      cx.beginPath();
+      cx.arc(r.x, r.y, name === debugTarget ? 8 : 5, 0, Math.PI * 2);
+      cx.stroke();
+      cx.font = '12px monospace';
+      cx.fillStyle = name === debugTarget
+        ? 'rgba(255,255,120,.96)'
+        : 'rgba(160,220,255,.62)';
+      cx.fillText(name, r.x + 10, r.y - 8);
+    }
+  });
+
+  // Draw hotspot zones in magenta so they're visually distinct from layout boxes
+  syncHotspotsFromLayout();
+  hotspots.forEach(h => {
+    cx.strokeStyle = 'rgba(255,80,220,.9)';
+    cx.fillStyle   = 'rgba(255,80,220,.08)';
+    cx.lineWidth   = 1.5;
+    cx.setLineDash([3, 3]);
+    cx.strokeRect(h.x, h.y, h.w, h.h);
+    cx.fillRect(h.x, h.y, h.w, h.h);
+    cx.font = '11px monospace';
+    cx.fillStyle = 'rgba(255,160,240,.9)';
+    const area = Math.round(h.w * h.h / 1000);
+    cx.fillText(`⬡ ${h.id} (${area}k)`, h.x + 4, h.y + 14);
+  });
+
+  cx.setLineDash([]);
+  cx.fillStyle = 'rgba(0,0,0,.76)';
+  cx.fillRect(22, 22, 660, 92);
+
+  cx.font = '14px monospace';
+  cx.fillStyle = '#dff6ff';
+
+  const val = layout[debugTarget];
+  const text = val.w == null
+    ? `${debugTarget}: { x: ${Math.round(val.x)}, y: ${Math.round(val.y)} },`
+    : `${debugTarget}: { x: ${Math.round(val.x)}, y: ${Math.round(val.y)}, w: ${Math.round(val.w)}, h: ${Math.round(val.h)} },`;
+
+  cx.fillText(`DEBUG TARGET: ${debugTarget}`, 40, 50);
+  cx.fillText(text, 40, 74);
+  cx.fillText('` toggle  |  TAB target  |  arrows move  |  SHIFT+arrows resize  |  ALT = 10px  |  C copy', 40, 98);
+
+  cx.restore();
+}
+
 function drawLamp() {
   drawImageFit('lamp', layout.lamp.x, layout.lamp.y, layout.lamp.w, layout.lamp.h, { shadow: { blur: 18, y: 8, color: 'rgba(0,0,0,.35)' } });
   if (!state.lampOn) return;
@@ -1147,89 +1477,97 @@ function drawRecordPlayer() {
 
 function drawTV() {
   const s = layout.screen;
+
+  // 1. TV cabinet PNG first — screen content will paint over it
+  drawImageFit('tv', layout.tv.x, layout.tv.y, layout.tv.w, layout.tv.h, { shadow: { blur: 15, y: 9, color: 'rgba(0,0,0,.35)' } });
+
+  // 2. Screen content on top, clipped to screen rect
   cx.save();
-  rr(cx, s.x, s.y, s.w, s.h, 6);
+  rr(cx, s.x, s.y, s.w, s.h, 4);
   cx.clip();
   drawTvScreenContent(s.x, s.y, s.w, s.h);
   cx.restore();
-  drawImageFit('tv', layout.tv.x, layout.tv.y, layout.tv.w, layout.tv.h, { shadow: { blur: 15, y: 9, color: 'rgba(0,0,0,.35)' } });
 
+  // 3. Screen glow spill onto room
   if (state.tvOn) {
-    const col = state.tvCh === 1 ? '80,210,255' : state.tvCh === 2 ? '225,85,255' : state.tvCh === 3 ? '180,140,255' : '120,170,255';
-    const g = cx.createRadialGradient(s.x + s.w * 0.45, s.y + s.h * 0.5, 3, s.x + s.w * 0.1, s.y + s.h * 1.7, 90);
-    g.addColorStop(0, `rgba(${col},.08)`);
+    const col = state.tvCh === 0 ? '100,140,255' : '160,100,255';
+    const g = cx.createRadialGradient(s.x + s.w * 0.5, s.y + s.h * 0.5, 4, s.x + s.w * 0.5, s.y + s.h * 2, 100);
+    g.addColorStop(0, `rgba(${col},.10)`);
     g.addColorStop(1, 'transparent');
     cx.fillStyle = g;
-    cx.fillRect(s.x - 70, s.y - 12, 170, 165);
+    cx.fillRect(s.x - 60, s.y - 20, s.w + 120, s.h + 120);
   }
 }
 
 function drawTvScreenContent(x, y, w, h) {
-  cx.fillStyle = '#05060b';
+  cx.fillStyle = '#020306';
   cx.fillRect(x, y, w, h);
   if (!state.tvOn) return;
 
-  const pulse = 0.7 + Math.sin(state.t * 8) * 0.08;
+  const t = state.t;
+
   if (state.tvCh === 0) {
+    // ── AMBIENT ─────────────────────────────────────────
+    // Deep blue-purple gradient that slowly breathes
+    const breathe = 0.5 + Math.sin(t * 0.4) * 0.5;
     const g = cx.createLinearGradient(x, y, x, y + h);
-    g.addColorStop(0, 'rgba(113,158,255,.42)');
-    g.addColorStop(1, 'rgba(54,34,118,.62)');
+    g.addColorStop(0, `rgba(${20 + breathe * 8|0},${30 + breathe * 12|0},${80 + breathe * 30|0},1)`);
+    g.addColorStop(0.6, `rgba(${10 + breathe * 6|0},${15 + breathe * 8|0},${55 + breathe * 20|0},1)`);
+    g.addColorStop(1, `rgba(8,10,28,1)`);
     cx.fillStyle = g;
     cx.fillRect(x, y, w, h);
-    for (let i = 0; i < 11; i++) {
-      cx.fillStyle = i % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)';
-      cx.fillRect(x, y + i * 4, w, 2);
-    }
-    cx.fillStyle = `rgba(255,255,255,${0.08 * pulse})`;
+
+    // Slow drifting orbs
+    const orbs = [
+      { px: 0.3, py: 0.4, r: 18, sp: 0.18, col: '90,140,255' },
+      { px: 0.65, py: 0.55, r: 13, sp: 0.27, col: '160,80,255' },
+      { px: 0.5, py: 0.3, r: 10, sp: 0.11, col: '80,200,220' },
+    ];
+    orbs.forEach(o => {
+      const ox = x + w * (o.px + Math.sin(t * o.sp) * 0.12);
+      const oy = y + h * (o.py + Math.cos(t * o.sp * 0.7) * 0.1);
+      const rg = cx.createRadialGradient(ox, oy, 0, ox, oy, o.r * (1 + breathe * 0.3));
+      rg.addColorStop(0, `rgba(${o.col},${0.35 + breathe * 0.15})`);
+      rg.addColorStop(1, 'transparent');
+      cx.fillStyle = rg;
+      cx.beginPath(); cx.arc(ox, oy, o.r * 2, 0, Math.PI * 2); cx.fill();
+    });
+
+    // Subtle horizontal scan lines
+    cx.save(); cx.globalAlpha = 0.06;
+    for (let i = 0; i < h; i += 2) { cx.fillStyle = '#fff'; cx.fillRect(x, y + i, w, 1); }
+    cx.restore();
+
+    // Slow waveform at bottom
+    cx.save(); cx.globalAlpha = 0.22;
+    cx.strokeStyle = `rgba(100,160,255,0.8)`;
+    cx.lineWidth = 1;
     cx.beginPath();
-    cx.arc(x + w * 0.5, y + h * 0.45, 10 + Math.sin(state.t * 1.8) * 1.5, 0, Math.PI * 2);
-    cx.fill();
-  } else if (state.tvCh === 1) {
-    const pal = skyPalette();
-    const g = cx.createLinearGradient(0, y, 0, y + h);
-    g.addColorStop(0, pal.top);
-    g.addColorStop(1, pal.bottom);
-    cx.fillStyle = g;
-    cx.fillRect(x, y, w, h);
-    drawCityLayer(x, y + 12, w, h - 12, state.cityOffset * 2.2, 0.4, 12, 0.55, '#1e1631');
-  } else if (state.tvCh === 2) {
-    for (let i = 0; i < 18; i++) {
-      cx.fillStyle = i % 3 === 0 ? 'rgba(224,80,255,.8)' : i % 2 ? 'rgba(90,220,255,.8)' : 'rgba(255,255,255,.8)';
-      cx.fillRect(x, y + i * 3, w, 2);
+    for (let i = 0; i <= w; i += 2) {
+      const wy = y + h * 0.82 + Math.sin(i * 0.08 + t * 0.6) * 5 + Math.sin(i * 0.03 + t * 0.3) * 8;
+      i === 0 ? cx.moveTo(x + i, wy) : cx.lineTo(x + i, wy);
     }
-    for (let i = 0; i < 28; i++) {
-      cx.fillStyle = `rgba(${Math.random() * 255},${Math.random() * 255},${Math.random() * 255},.35)`;
-      cx.fillRect(x + Math.random() * w, y + Math.random() * h, 2 + Math.random() * 8, 1 + Math.random() * 3);
-    }
+    cx.stroke(); cx.restore();
+
   } else {
-    const g = cx.createLinearGradient(0, y, 0, y + h);
-    g.addColorStop(0, 'rgba(110,80,165,.58)');
-    g.addColorStop(1, 'rgba(43,26,73,.84)');
-    cx.fillStyle = g;
-    cx.fillRect(x, y, w, h);
-    drawCityLayer(x, y + 14, w, h - 14, state.cityOffset * 1.1, 0.35, 8, 0.32, '#20183c');
-    cx.fillStyle = 'rgba(10,8,18,.62)';
-    cx.beginPath();
-    cx.arc(x + w * 0.58, y + h * 0.46, 13, 0, Math.PI * 2);
-    cx.fill();
-    cx.fillStyle = '#ebd9f8';
-    cx.beginPath();
-    cx.arc(x + w * 0.58, y + h * 0.39, 8.5, 0, Math.PI * 2);
-    cx.fill();
-    cx.fillStyle = '#261734';
-    cx.beginPath();
-    cx.arc(x + w * 0.58, y + h * 0.39, 8, 0, Math.PI * 2);
-    cx.fill();
-    cx.fillStyle = '#f1d9ee';
-    cx.fillRect(x + w * 0.2, y + h * 0.7, w * 0.42, 2);
-    cx.font = '7px sans-serif';
-    cx.fillStyle = '#ff9de3';
-    cx.fillText('未来は静かだ', x + 5, y + h - 6);
+    // ── ANIME — real video ───────────────────────────────
+    if (animeVideo.readyState >= 2) {
+      cx.drawImage(animeVideo, x, y, w, h);
+    } else {
+      // Fallback while video buffering
+      cx.fillStyle = '#0d0818';
+      cx.fillRect(x, y, w, h);
+      cx.font = `${Math.max(6, w * 0.07)}px monospace`;
+      cx.fillStyle = 'rgba(200,160,255,0.4)';
+      cx.fillText('loading…', x + w * 0.32, y + h * 0.54);
+    }
   }
 
-  cx.globalAlpha = 0.16;
+  // CRT scanlines over everything
+  cx.save(); cx.globalAlpha = 0.13;
+  cx.fillStyle = '#000';
   for (let i = 0; i < h; i += 2) cx.fillRect(x, y + i, w, 1);
-  cx.globalAlpha = 1;
+  cx.restore();
 }
 
 function drawTableAndProps() {
@@ -1308,6 +1646,7 @@ function drawReactiveLighting() {
 }
 
 function drawFocusHighlight() {
+  syncHotspotsFromLayout();
   if (!state.hover) return;
   const h = hotspots.find(s => s.id === state.hover.id);
   if (!h) return;
@@ -1368,20 +1707,45 @@ function updateParticles(dt) {
     }
   });
 
-  state.rain.forEach(p => {
-    p.y += p.v * dt; p.x -= p.v * 0.12 * dt;
-    if (p.y > layout.win.h + 6) { p.y = -10; p.x = Math.random() * layout.win.w; }
-  });
-  state.snow.forEach(p => {
-    p.y += p.v * dt; p.x += Math.sin(state.t + p.phase) * 12 * dt;
-    if (p.y > layout.win.h + 8) { p.y = -4; p.x = Math.random() * layout.win.w; }
-  });
+  // Rain layers — update positions and wind
+  if (state.weather.rain || state.weather.thunderstorm) {
+    // Slowly shifting wind gusts
+    windX += (Math.sin(state.t * 0.07) * 0.055 - windX) * dt * 0.3;
+    const windAngle = windX + Math.sin(state.t * 0.11) * 0.022;
+    const storm = state.weather.thunderstorm;
+    rainLayers.forEach((layer, li) => {
+      const speedMul = storm ? 1.3 : 1.0;
+      layer.forEach(d => {
+        d.y += d.vy * dt * speedMul;
+        d.x += windAngle * d.vy * dt * speedMul * 0.5;
+        if (d.y > 1.06) { d.y = -0.06; d.x = Math.random(); }
+        if (d.x > 1.05) d.x -= 1.1;
+        if (d.x < -0.05) d.x += 1.1;
+      });
+    });
+  }
+
+  // Snow layers — gentle layered drift
+  if (state.weather.snow) {
+    snowFlakes.forEach((layer, li) => {
+      const speedMul = [0.55, 0.75, 1.0][li];
+      layer.forEach(f => {
+        f.y += f.vy * dt * speedMul;
+        // Wind nudge (much gentler than rain)
+        f.x += windX * f.vy * dt * speedMul * 0.25;
+        if (f.y > 1.06) { f.y = -0.06; f.x = Math.random(); }
+        if (f.x > 1.05) f.x -= 1.1;
+        if (f.x < -0.05) f.x += 1.1;
+      });
+    });
+  }
   droneLights.forEach(d => {
     d.x += d.speed * dt;
     if (d.x > 1.08) { d.x = -0.08; d.y = 0.08 + Math.random() * 0.34; d.speed = 0.006 + Math.random() * 0.012; }
   });
   glassDroplets.forEach(d => {
     if (!(state.weather.rain || state.weather.thunderstorm)) return;
+    if (state.winAnim > 0.95) return; // no glass to run down when open
     d.y += d.speed * dt;
     if (d.y > 1.12) { d.y = -0.12; d.x = Math.random(); }
   });
@@ -1395,6 +1759,17 @@ function updateParticles(dt) {
   });
 }
 
+// Reset canvas context to a known clean state between major draw calls.
+// Guards against any sub-function leaving globalAlpha/compositeOp dirty.
+function resetCtx() {
+  cx.globalAlpha = 1;
+  cx.globalCompositeOperation = 'source-over';
+  cx.shadowBlur = 0;
+  cx.shadowColor = 'transparent';
+  cx.setLineDash([]);
+  cx.lineWidth = 1;
+}
+
 function render(ts) {
   const dt = state.lastTs ? Math.min(0.033, (ts - state.lastTs) / 1000) : 0.016;
   state.lastTs = ts;
@@ -1403,20 +1778,21 @@ function render(ts) {
   updateParticles(dt);
 
   cx.clearRect(0, 0, RW, RH);
-  drawRoom();
-  drawWindowView(dt);
-  drawForegroundFrame();
-  // drawLamp();
-  // drawHifiRack();
-  // drawRecordPlayer();
-  // drawHeadphones();
-  // drawChair();
-  // drawTV();
-  // drawTableAndProps();
-  // drawCube();
-  drawReactiveLighting();
-  drawAtmosphere();
-  drawFocusHighlight();
+  resetCtx(); drawRoom();
+  resetCtx(); drawWindowView(dt);
+  resetCtx(); drawForegroundFrame();
+  resetCtx(); drawLamp();
+  resetCtx(); drawHifiRack();
+  resetCtx(); drawRecordPlayer();
+  resetCtx(); drawHeadphones();
+  resetCtx(); drawChair();
+  resetCtx(); drawTV();
+  resetCtx(); drawTableAndProps();
+  resetCtx(); drawCube();
+  resetCtx(); drawReactiveLighting();
+  resetCtx(); drawAtmosphere();
+  resetCtx(); drawFocusHighlight();
+  resetCtx(); drawDebugLayout();
 
   if (state.labelHold > 0) {
     state.labelHold -= dt;
@@ -1434,6 +1810,7 @@ function showLabel(text, color = '#b4f2ff', hold = 1.1) {
 }
 
 function updateUiState() {
+  syncHotspotsFromLayout();
   document.querySelectorAll('.fcard').forEach(el => el.classList.remove('show'));
   if (state.focus) {
     const h = hotspots.find(s => s.id === state.focus);
@@ -1451,9 +1828,26 @@ function updateUiState() {
   UI.winToggle.textContent = state.winOpen ? 'CLOSE WINDOW' : 'OPEN WINDOW';
   UI.winLean.classList.toggle('on', state.leanOut);
   UI.winLean.textContent = state.leanOut ? 'STEP BACK' : 'LEAN OUT';
+
+  // Anime video — play only when TV is on and anime channel is active
+  const shouldPlay = state.tvOn && state.tvCh === 1;
+  if (shouldPlay) {
+    animeVideo.play().catch(() => {}); // catch autoplay policy blocks silently
+  } else {
+    animeVideo.pause();
+  }
 }
 
-function applyFocusTransform() {
+function applyFocusTransform(instant = false) {
+  syncHotspotsFromLayout();
+
+  // Slow, breathing transitions — this is a relaxing space
+  canvas.style.transition = instant
+    ? 'none'
+    : state.focus
+      ? 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1), filter 1.1s ease'
+      : 'transform 0.85s cubic-bezier(0.16, 1, 0.3, 1), filter 0.85s ease';
+
   if (!state.focus) {
     canvas.style.transformOrigin = '0 0';
     canvas.style.transform = 'translate(0px,0px) scale(1)';
@@ -1468,11 +1862,11 @@ function applyFocusTransform() {
   const baseW = RW * SCALE;
   const baseH = RH * SCALE;
   const baseLeft = (innerWidth - baseW) / 2;
-  const baseTop = (innerHeight - baseH) / 2;
-  const desiredX = innerWidth * h.zoom.ax;
+  const baseTop  = (innerHeight - baseH) / 2;
+  const desiredX = innerWidth  * h.zoom.ax;
   const desiredY = innerHeight * h.zoom.ay;
   const tx = desiredX - baseLeft - cx0 * SCALE * s;
-  const ty = desiredY - baseTop - cy0 * SCALE * s;
+  const ty = desiredY - baseTop  - cy0 * SCALE * s;
   canvas.style.transformOrigin = '0 0';
   canvas.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
   canvas.style.filter = state.focus === 'window'
@@ -1495,10 +1889,15 @@ function setFocus(id) {
 }
 
 function hitTest(clientX, clientY) {
+  syncHotspotsFromLayout();
   const rect = canvas.getBoundingClientRect();
-  const x = (clientX - rect.left) / SCALE;
-  const y = (clientY - rect.top) / SCALE;
-  return hotspots.find(h => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) || null;
+  const effectiveScale = rect.width / RW;
+  const x = (clientX - rect.left) / effectiveScale;
+  const y = (clientY - rect.top) / effectiveScale;
+  // Sort ascending by area so the most specific (smallest) hotspot always wins
+  const hits = hotspots.filter(h => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
+  if (!hits.length) return null;
+  return hits.sort((a, b) => (a.w * a.h) - (b.w * b.h))[0];
 }
 
 canvas.addEventListener('mousemove', e => {
@@ -1518,9 +1917,9 @@ canvas.addEventListener('click', e => {
 
   if (state.focus === hit.id) {
     if (hit.id === 'tv') {
-      state.tvCh = (state.tvCh + 1) % 4;
+      state.tvCh = (state.tvCh + 1) % 2;
       updateUiState();
-      showLabel(`[ TV CHANNEL ${state.tvCh + 1} ]`, '#b4f2ff');
+      showLabel(state.tvCh === 0 ? '[ AMBIENT ]' : '[ ANIME ]', '#b4f2ff');
       return;
     }
     if (hit.id === 'hifi') {
@@ -1590,10 +1989,15 @@ UI.winLean.addEventListener('click', () => { state.leanOut = !state.leanOut; upd
 
 document.querySelectorAll('[data-weather]').forEach(el => el.addEventListener('click', () => {
   const key = el.dataset.weather;
+  const wasActive = state.weather[key];
   Object.keys(state.weather).forEach(k => state.weather[k] = false);
-  state.weather[key] = true;
+  if (!wasActive) {
+    state.weather[key] = true;
+    showLabel(`[ ${key.toUpperCase()} ]`, '#c7f0ff');
+  } else {
+    showLabel('[ CLEAR ]', '#c7f0ff');
+  }
   updateUiState();
-  showLabel(`[ ${key.toUpperCase()} ]`, '#c7f0ff');
 }));
 
 document.querySelectorAll('[data-mood]').forEach(el => el.addEventListener('click', () => {
@@ -1603,12 +2007,109 @@ document.querySelectorAll('[data-mood]').forEach(el => el.addEventListener('clic
   showLabel(`[ ${state.mood.toUpperCase()} ]`, '#d8c2ff');
 }));
 
-function seedParticles() {
-  for (let i = 0; i < 72; i++) state.rain.push({ x: Math.random() * layout.win.w, y: Math.random() * layout.win.h, v: 80 + Math.random() * 140 });
-  for (let i = 0; i < 28; i++) state.snow.push({ x: Math.random() * layout.win.w, y: Math.random() * layout.win.h, v: 12 + Math.random() * 26, r: 0.8 + Math.random() * 1.5, phase: Math.random() * Math.PI * 2 });
-}
 
-seedParticles();
+// ── TEMP LAYOUT DEBUGGER CONTROLS ─────────────────────
+window.addEventListener('keydown', e => {
+  // Backtick toggles the temporary layout editor on/off.
+  if (e.key === '`') {
+    e.preventDefault();
+    DEBUG_LAYOUT = !DEBUG_LAYOUT;
+    console.log(`DEBUG_LAYOUT: ${DEBUG_LAYOUT ? 'ON' : 'OFF'}`);
+
+    if (typeof showLabel === 'function') {
+      showLabel(DEBUG_LAYOUT ? '[ DEBUG LAYOUT ON ]' : '[ DEBUG LAYOUT OFF ]', '#ffffa8', 1);
+    }
+
+    return;
+  }
+
+  if (!DEBUG_LAYOUT) return;
+
+  const r = layout[debugTarget];
+  if (!r) return;
+
+  const isArrow = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key);
+  const step = e.altKey ? 10 : 1;
+
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const i = debugTargets.indexOf(debugTarget);
+    debugTarget = debugTargets[(i + 1) % debugTargets.length];
+
+    console.log('Debug target:', debugTarget, layout[debugTarget]);
+    return;
+  }
+
+  if (e.key === 'c' || e.key === 'C') {
+    const v = layout[debugTarget];
+    const output = v.w == null
+      ? `${debugTarget}: { x: ${Math.round(v.x)}, y: ${Math.round(v.y)} },`
+      : `${debugTarget}: { x: ${Math.round(v.x)}, y: ${Math.round(v.y)}, w: ${Math.round(v.w)}, h: ${Math.round(v.h)} },`;
+
+    console.log(output);
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(output).catch(() => {});
+    }
+
+    if (typeof showLabel === 'function') {
+      showLabel(`[ COPIED ${debugTarget} ]`, '#ffffa8', 0.8);
+    }
+
+    return;
+  }
+
+  if (!isArrow) return;
+
+  e.preventDefault();
+
+  const resize = e.shiftKey && r.w != null && r.h != null;
+
+  if (!resize) {
+    if (e.key === 'ArrowLeft') r.x -= step;
+    if (e.key === 'ArrowRight') r.x += step;
+    if (e.key === 'ArrowUp') r.y -= step;
+    if (e.key === 'ArrowDown') r.y += step;
+  } else {
+    if (e.key === 'ArrowLeft') r.w -= step;
+    if (e.key === 'ArrowRight') r.w += step;
+    if (e.key === 'ArrowUp') r.h -= step;
+    if (e.key === 'ArrowDown') r.h += step;
+
+    r.w = Math.max(1, r.w);
+    r.h = Math.max(1, r.h);
+  }
+
+  const hs = hotspots.find(h => h.id === debugTarget);
+  if (hs && r.w != null && r.h != null) {
+    hs.x = r.x;
+    hs.y = r.y;
+    hs.w = r.w;
+    hs.h = r.h;
+  }
+  syncHotspotsFromLayout();
+});
+
+// ── SNOW SYSTEM ───────────────────────────────────────
+function makeSnowLayer(count, vyMin, vyMax, rMin, rMax, aMin, aMax, wobble) {
+  return Array.from({length: count}, () => ({
+    x:       Math.random(),
+    y:       Math.random(),
+    vy:      vyMin + Math.random() * (vyMax - vyMin), // normalized/sec
+    r:       rMin  + Math.random() * (rMax  - rMin),
+    alpha:   aMin  + Math.random() * (aMax  - aMin),
+    phase:   Math.random() * Math.PI * 2,
+    phaseSpd:0.25 + Math.random() * 0.55,
+    wobble,
+  }));
+}
+const snowFlakes = [
+  makeSnowLayer(65, 0.022, 0.048, 0.5, 1.1,  0.22, 0.45, 0.008), // far  — tiny, slow, faint
+  makeSnowLayer(45, 0.038, 0.072, 1.1, 2.2,  0.42, 0.70, 0.014), // mid  — main body
+  makeSnowLayer(18, 0.060, 0.095, 2.2, 3.8,  0.60, 0.92, 0.022), // near — large, bright
+];
+
+// snow + rain seeded at module level
 loadAssets();
 resize();
 updateUiState();
