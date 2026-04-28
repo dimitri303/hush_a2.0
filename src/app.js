@@ -80,7 +80,7 @@ const state = {
 const ASSET_DIR = 'assets/';
 
 // ── CITY DATA ─────────────────────────────────────────
-const CITY_W = RW * 3;
+const CITY_W = RW; // static city — fills window exactly
 
 function mkBuilding(x, layerIdx) {
   const shades = ['#0c0818','#110c1e','#160e26','#1c1230'];
@@ -105,13 +105,33 @@ function mkBuilding(x, layerIdx) {
   };
 }
 
+// apartmentMoments populated after cityLayers is built below
+let apartmentMoments = [];
+
 const cityLayers = Array.from({length:4},(_,li)=>{
-  const spacing = [12,18,28,45][li];
+  const spacing = [55, 80, 110, 160][li];
   const buildings = [];
   for(let x=0; x<CITY_W; x+=spacing+Math.floor(Math.random()*spacing*.5)){
     buildings.push(mkBuilding(x,li));
   }
   return {buildings, depth:[0.015,0.045,0.09,0.18][li]};
+});
+
+// Build apartment moments anchored to buildings
+cityLayers.forEach((layer,li)=>{
+  if(li<1) return;
+  layer.buildings.forEach(b=>{
+    if(Math.random()>.4) return;
+    const bFrac=b.x/CITY_W;
+    apartmentMoments.push({
+      bx:bFrac, bw:b.w/CITY_W, bh:b.h,
+      w:7+Math.random()*Math.min(14,b.w*.6), h:5+Math.random()*8,
+      phase:Math.random()*Math.PI*2,
+      next:Math.random()*12, active:0,
+      kind:['tv','curtain','silhouette','lamp'][Math.floor(Math.random()*4)],
+      li
+    });
+  });
 });
 
 const distantLife = Array.from({length:34},()=>({
@@ -149,6 +169,33 @@ const traffic = Array.from({length:14},()=>({
   lane:Math.floor(Math.random()*2), dir:Math.random()>.5?1:-1,
 }));
 
+// ── EXTRA CITY LIFE ───────────────────────────────────
+const droneLights = Array.from({length:5},()=>({
+  x:Math.random(), y:0.08+Math.random()*.34,
+  speed:0.006+Math.random()*.012,
+  phase:Math.random()*Math.PI*2,
+  size:1+Math.random()*1.8,
+  colour:Math.random()>.5?'rgba(120,230,255,.75)':'rgba(255,115,210,.7)'
+}));
+
+const glassDroplets = Array.from({length:42},()=>({
+  x:Math.random(), y:Math.random(),
+  speed:0.015+Math.random()*.045,
+  len:14+Math.random()*42,
+  wobble:Math.random()*Math.PI*2,
+  alpha:0.08+Math.random()*.18
+}));
+
+const billboardGlitches = Array.from({length:4},()=>({
+  x:Math.random(), y:0.18+Math.random()*.52,
+  w:28+Math.random()*54, h:10+Math.random()*22,
+  phase:Math.random()*Math.PI*2,
+  colourA:Math.random()>.5?'rgba(0,230,255,.65)':'rgba(255,65,190,.62)',
+  colourB:Math.random()>.5?'rgba(255,210,90,.5)':'rgba(180,110,255,.55)'
+}));
+
+// apartmentMoments built after cityLayers — see above
+
 function timeProfile() {
   const w = state.timeBlend || {day:0,sunset:0,night:1};
   return {
@@ -177,6 +224,7 @@ const ASSETS = {
   mug: 'mug.png',
   recordPlayer: 'record-player.png',
   remote: 'remote.png',
+  cityNight: 'city-night.png',
   roomBackplate: 'room-backplate.png',
   table: 'table.png',
   tv: 'tv.png'
@@ -189,30 +237,30 @@ let loadedAssets = 0;
 const layout = {
   room: { x: 0, y: 0, w: RW, h: RH },
   win: { x: 278, y: 120, w: 718, h: 300 },
-  chair: { x: 8, y: 400, w: 236, h: 296 },
-  lamp: { x: 152, y: 328, w: 104, h: 216 },
-  hifi: { x: 304, y: 388, w: 310, h: 56 },
-  recordPlayer: { x: 316, y: 340, w: 184, h: 72 },
-  headphones: { x: 516, y: 386, w: 104, h: 40 },
-  tv: { x: 924, y: 340, w: 280, h: 224 },
-  table: { x: 380, y: 536, w: 530, h: 184 },
-  mug: { x: 456, y: 564, w: 96, h: 88 },
-  remote: { x: 712, y: 584, w: 72, h: 48 },
-  books: { x: 796, y: 552, w: 156, h: 92 },
-  cube: { x: 628, y: 548, w: 56, h: 40 },
-  cubeGlow: { x: 656, y: 520 },
-  screen: { x: 960, y: 372, w: 116, h: 92 },
-  rackDisplay: { x: 384, y: 424, w: 216, h: 20 },
-  rackKnobs: { x: 628, y: 436 },
-  recordSleeve: { x: 288, y: 388, w: 76, h: 76 }
+  chair:        { x: 8,   y: 400, w: 236, h: 296 },
+  lamp:         { x: 152, y: 328, w: 104, h: 216 },
+  hifi:         { x: 304, y: 388, w: 310, h:  56 },
+  recordPlayer: { x: 316, y: 340, w: 184, h:  72 },
+  headphones:   { x: 516, y: 386, w: 104, h:  40 },
+  tv:           { x: 924, y: 340, w: 280, h: 224 },
+  table:        { x: 380, y: 536, w: 530, h: 184 },
+  mug:          { x: 456, y: 564, w:  96, h:  88 },
+  remote:       { x: 712, y: 584, w:  72, h:  48 },
+  books:        { x: 796, y: 552, w: 156, h:  92 },
+  cube:         { x: 628, y: 548, w:  56, h:  40 },
+  cubeGlow:     { x: 656, y: 520 },
+  screen:       { x: 960, y: 372, w: 116, h:  92 },
+  rackDisplay:  { x: 384, y: 424, w: 216, h:  20 },
+  rackKnobs:    { x: 628, y: 436 },
+  recordSleeve: { x: 288, y: 388, w:  76, h:  76 }
 };
 
 const hotspots = [
-  { id: 'window', label: 'the window', x: layout.win.x, y: layout.win.y, w: layout.win.w, h: layout.win.h, card: 'winUi', zoom: { s: 1.65, ax: 0.5, ay: 0.33 } },
-  { id: 'hifi', label: 'the hi-fi', x: 288, y: 336, w: 420, h: 116, card: 'hifiUi', zoom: { s: 2.1, ax: 0.35, ay: 0.56 } },
-  { id: 'tv', label: 'the television', x: layout.tv.x, y: layout.tv.y, w: layout.tv.w, h: layout.tv.h, card: 'tvUi', zoom: { s: 2.25, ax: 0.78, ay: 0.52 } },
-  { id: 'holo', label: 'the holocube', x: 586, y: 488, w: 152, h: 144, card: 'holoUi', zoom: { s: 2.4, ax: 0.5, ay: 0.79 } },
-  { id: 'lamp', label: 'the lamp', x: 92, y: 304, w: 140, h: 236, card: null, zoom: { s: 1.9, ax: 0.22, ay: 0.55 } }
+  { id: 'window', label: 'the window',    x: layout.win.x, y: layout.win.y, w: layout.win.w, h: layout.win.h, card: 'winUi',  zoom: { s: 1.65, ax: 0.5,  ay: 0.33 } },
+  { id: 'hifi',   label: 'the hi-fi',     x: 288, y: 336, w: 420, h: 116, card: 'hifiUi', zoom: { s: 2.1,  ax: 0.35, ay: 0.56 } },
+  { id: 'tv',     label: 'the television',x: layout.tv.x, y: layout.tv.y, w: layout.tv.w, h: layout.tv.h, card: 'tvUi',   zoom: { s: 2.25, ax: 0.78, ay: 0.52 } },
+  { id: 'holo',   label: 'the holocube',  x: 586, y: 488, w: 152, h: 144, card: 'holoUi', zoom: { s: 2.4,  ax: 0.5,  ay: 0.79 } },
+  { id: 'lamp',   label: 'the lamp',      x: 92,  y: 304, w: 140, h: 236, card: null,     zoom: { s: 1.9,  ax: 0.22, ay: 0.55 } }
 ];
 
 const tracks = [
@@ -532,11 +580,7 @@ function drawWindowView(dt) {
   // Sky
   drawBlendedWindowSky(x,y,w,h,horizon);
 
-  // City backdrop
-  drawMegaCityBackdrop(x,y,w,h,horizon);
-  drawCityTimeAtmosphere(x,y,w,h,horizon);
-
-  // Stars — with subtle parallax
+  // Stars + moon drawn BEFORE city PNG so they show through transparent roofline gaps
   const tp = timeProfile();
   const starA = clamp(tp.night-.1,.0,1)*clamp(1-tp.day*2,0,1);
   if(starA>.01){
@@ -551,8 +595,6 @@ function drawWindowView(dt) {
     });
     cx.restore();
   }
-
-  // Moon — gentle parallax
   if(starA>.01){
     cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
     const mx=x+MOON.px*w + px*6, my=y+MOON.py*(horizon-y);
@@ -572,81 +614,12 @@ function drawWindowView(dt) {
     cx.restore();
   }
 
-  // Buildings — each layer has progressively more parallax (near layers move more)
-  cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
-  cityLayers.forEach((layer,li)=>{
-    const groundY = y + h - 8 - li * 12;
-    const layerParallax = px * (li + 1) * 14; // near=more shift
-    layer.buildings.forEach(b=>{
-      [-CITY_W, 0].forEach(wrap=>{
-        const bxRaw = x + (b.x + wrap) / CITY_W * w + layerParallax;
-        if(bxRaw+b.w<x || bxRaw>x+w) return;
-        const by = groundY - b.h;
-        const bg=cx.createLinearGradient(bxRaw,by,bxRaw+b.w,by+b.h);
-        bg.addColorStop(0,b.shade);
-        bg.addColorStop(.5,'#13091f');
-        bg.addColorStop(1,'#06030b');
-        cx.fillStyle=bg;
-        rr(cx,bxRaw,by,b.w,b.h,2);
-        cx.fill();
-        cx.fillStyle='rgba(255,255,255,.035)';
-        cx.fillRect(bxRaw+1,by+1,Math.max(1,b.w*.12),b.h-2);
-
-        // Windows
-        b.wins.forEach(win=>{
-          if(state.t-win.last>win.rate/1000){win.on=!win.on;win.last=state.t;}
-          if(!win.on)return;
-          const wx=bxRaw+win.ox, wy=by+win.oy;
-          if(wx<x||wx>x+w||wy<y||wy>y+h)return;
-          cx.fillStyle=win.warm?'rgba(255,230,170,.85)':'rgba(160,220,255,.75)';
-          cx.fillRect(wx, wy, Math.max(1.5,b.w*.08), 1.5);
-        });
-
-        // Wet building streaks when raining
-        if((state.weather.rain||state.weather.thunderstorm) && li>=1){
-          cx.save(); cx.globalAlpha=.12;
-          const numStreaks=Math.max(2,Math.floor(b.w/8));
-          for(let si=0;si<numStreaks;si++){
-            const sx=bxRaw+4+si*(b.w/numStreaks);
-            const streakLen=h*.15+Math.sin(state.t*.3+si+b.x)*.04*h;
-            const sg=cx.createLinearGradient(sx,by,sx,by+streakLen);
-            sg.addColorStop(0,'transparent');
-            sg.addColorStop(0.4,'rgba(160,200,255,.6)');
-            sg.addColorStop(1,'transparent');
-            cx.fillStyle=sg; cx.fillRect(sx,by,1,streakLen);
-          }
-          cx.restore();
-        }
-
-        // Neon sign
-        if(b.sign&&li>=2){
-          const flk=.65+Math.sin(state.t*1.8+b.x*.01)*.22;
-          if(flk>.15){
-            const sx=bxRaw+b.w*.14, sy=by+b.h*.12, sw=b.w*.6, sh=Math.max(12,b.h*.2);
-            cx.strokeStyle=b.signCol; cx.lineWidth=1.2; cx.globalAlpha=flk;
-            rr(cx,sx,sy,sw,sh,3); cx.stroke();
-            cx.font=`${Math.max(8,sw*.35)}px sans-serif`;
-            cx.fillStyle=b.signCol;
-            cx.fillText(b.signText,sx+3,sy+sh*.72);
-            cx.globalAlpha=1; cx.lineWidth=1;
-          }
-        }
-
-        // LED screen
-        if(b.screen&&li>=2){
-          const sx=bxRaw+b.w*.3, sy=by+b.h*.28, sw=b.w*.28, sh=b.h*.3;
-          const pg=cx.createLinearGradient(sx,sy,sx+sw,sy+sh);
-          const phase=(state.t*.4+b.screenPh)%(Math.PI*2);
-          pg.addColorStop(0,`rgba(${200+Math.sin(phase)*55|0},50,${180+Math.cos(phase)*75|0},.85)`);
-          pg.addColorStop(1,`rgba(50,${130+Math.sin(phase)*80|0},255,.85)`);
-          cx.fillStyle=pg;
-          rr(cx,sx,sy,sw,sh,2); cx.fill();
-        }
-      });
-    });
-  });
-
+  // City PNG asset — drawn over sky, stars show through transparent roofline
+  drawCityAsset(x,y,w,h);
+  drawCityTimeAtmosphere(x,y,w,h,horizon);
   drawDistantLife(x,y,w,h);
+  drawCityLifeLayer(x,y,w,h,horizon);
+  drawBillboardLife(x,y,w,h);
 
   // Elevated highway
   const roadY = y+h-16;
@@ -782,6 +755,23 @@ function drawBlendedWindowSky(x,y,w,h,horizon){
   cx.restore();
 }
 
+function drawCityAsset(x, y, w, h) {
+  const img = images.cityNight;
+  if (!img || !img.complete || !img.naturalWidth) return;
+
+  // Scale to fill window width, anchor to bottom of window
+  const scale = w / img.naturalWidth;
+  const dw = w;
+  const dh = img.naturalHeight * scale;
+  const dx = x + state.parallaxX * -6; // subtle mouse parallax
+  const dy = y + h - dh;               // bottom-aligned
+
+  cx.save();
+  cx.beginPath(); cx.rect(x, y, w, h); cx.clip();
+  cx.drawImage(img, dx, dy, dw, dh);
+  cx.restore();
+}
+
 function drawMegaCityBackdrop(x,y,w,h,horizon){
   cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
   const towers=[
@@ -875,6 +865,92 @@ function drawSnow(x, y, w, h) {
   cx.restore();
 }
 
+function drawCityLifeLayer(x,y,w,h,horizon){
+  const tp=timeProfile();
+  const neon=0.18+tp.sunset*.45+tp.night*1.0;
+  cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
+  droneLights.forEach(d=>{
+    const dx=x+d.x*w, dy=y+d.y*h+Math.sin(state.t*.7+d.phase)*4;
+    cx.save(); cx.globalCompositeOperation='lighter';
+    const blink=0.45+Math.max(0,Math.sin(state.t*3.2+d.phase))*.55;
+    cx.fillStyle=d.colour; cx.globalAlpha=blink*(0.3+0.7*neon);
+    cx.beginPath(); cx.arc(dx,dy,d.size,0,Math.PI*2); cx.fill();
+    cx.globalAlpha*=0.22; cx.fillRect(dx-18,dy,36,1);
+    cx.restore();
+  });
+  apartmentMoments.forEach(a=>{
+    if(a.active<=0) return;
+    const px=x+((a.bx*CITY_W)/CITY_W)*w;
+    if(px<x||px>x+w) return;
+    const groundY=y+h-8-a.li*12;
+    const py=groundY-a.bh*(0.15+Math.random()*0.65);
+    const fade=clamp(Math.min(a.active,1),0,1);
+    const pulse=0.7+Math.sin(state.t*2.4+a.phase)*.22;
+    const alpha=fade*pulse*(0.35+neon*.4);
+    if(a.kind==='tv'){ cx.fillStyle=`rgba(120,220,255,${alpha})`; rr(cx,px,py,a.w,a.h*.65,2); cx.fill(); }
+    if(a.kind==='curtain'){ cx.fillStyle=`rgba(255,205,150,${alpha*.72})`; rr(cx,px,py,a.w,a.h,2); cx.fill(); cx.fillStyle=`rgba(12,8,18,${alpha*.55})`; cx.fillRect(px+a.w*.48,py,1,a.h); }
+    if(a.kind==='silhouette'){ cx.fillStyle=`rgba(255,210,150,${alpha*.42})`; rr(cx,px,py,a.w,a.h,2); cx.fill(); }
+    if(a.kind==='lamp'){ cx.fillStyle=`rgba(255,185,105,${alpha*.55})`; cx.fillRect(px,py,a.w,2); }
+  });
+  cx.restore();
+}
+
+function drawBillboardLife(x,y,w,h){
+  const tp=timeProfile();
+  const neon=0.15+tp.sunset*.45+tp.night*1.0;
+  cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
+  cx.globalCompositeOperation='lighter';
+  billboardGlitches.forEach((b,i)=>{
+    const bx=x+b.x*w, by=y+b.y*h;
+    const glitch=Math.sin(state.t*1.2+b.phase)>.88;
+    const flicker=glitch?1:0.45+Math.sin(state.t*.8+b.phase)*.18;
+    cx.globalAlpha=clamp(flicker*neon,0,.95);
+    const bg=cx.createLinearGradient(bx,by,bx+b.w,by+b.h);
+    bg.addColorStop(0,b.colourA); bg.addColorStop(1,b.colourB);
+    cx.fillStyle=bg; rr(cx,bx,by,b.w,b.h,3); cx.fill();
+    if(glitch){ cx.fillStyle='rgba(255,255,255,.65)'; cx.fillRect(bx+Math.random()*b.w,by+Math.random()*b.h,12+Math.random()*26,2); }
+  });
+  cx.globalAlpha=1; cx.globalCompositeOperation='source-over';
+  cx.restore();
+}
+
+function drawGlassRainLayer(x,y,w,h){
+  if(!(state.weather.rain||state.weather.thunderstorm)) return;
+  cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
+  glassDroplets.forEach(d=>{
+    const px=x+d.x*w+Math.sin(state.t*.8+d.wobble)*2;
+    const py=y+d.y*h;
+    const len=d.len*(state.weather.thunderstorm?1.25:1);
+    const g=cx.createLinearGradient(px,py,px-3,py+len);
+    g.addColorStop(0,`rgba(230,240,255,${d.alpha*.25})`);
+    g.addColorStop(0.35,`rgba(180,210,255,${d.alpha})`);
+    g.addColorStop(1,'rgba(180,210,255,0)');
+    cx.strokeStyle=g; cx.lineWidth=1;
+    cx.beginPath(); cx.moveTo(px,py);
+    cx.quadraticCurveTo(px+Math.sin(d.wobble)*2,py+len*.45,px-2,py+len);
+    cx.stroke();
+  });
+  cx.restore();
+}
+
+function drawCityDepthGrade(x,y,w,h,horizon){
+  const tp=timeProfile();
+  cx.save(); cx.beginPath(); cx.rect(x,y,w,h); cx.clip();
+  const base=cx.createLinearGradient(0,horizon-h*.18,0,y+h);
+  base.addColorStop(0,'rgba(255,255,255,0)');
+  base.addColorStop(0.55,`rgba(120,70,160,${0.06+tp.sunset*.06+tp.night*.12})`);
+  base.addColorStop(1,`rgba(8,4,18,${0.22+tp.night*.18})`);
+  cx.fillStyle=base; cx.fillRect(x,y,w,h);
+  cx.globalCompositeOperation='screen';
+  const bloom=cx.createRadialGradient(x+w*.5,horizon+h*.1,0,x+w*.5,horizon+h*.1,w*.7);
+  bloom.addColorStop(0,`rgba(190,60,255,${0.08*tp.night+0.05*tp.sunset})`);
+  bloom.addColorStop(0.45,`rgba(80,180,255,${0.04*tp.night+0.03*tp.sunset})`);
+  bloom.addColorStop(1,'transparent');
+  cx.fillStyle=bloom; cx.fillRect(x,y,w,h);
+  cx.globalCompositeOperation='source-over';
+  cx.restore();
+}
+
 function drawForegroundFrame() {
   const t = Date.now() / 1000;
   const pulse = 0.94 + Math.sin(t * 1.4) * 0.06;
@@ -942,6 +1018,40 @@ function drawForegroundFrame() {
   bg.addColorStop(1, 'rgba(255,255,255,0)');
   cx.fillStyle = bg;
   cx.fillRect(left, bottom - sillH / 2, w, sillH);
+  cx.restore();
+}
+
+// Miniature scrolling city silhouette — used by TV screen channels 1 & 3.
+// Args: x,y,w,h  bounding rect | offset  horizontal scroll (px) | heightScale  0‥1
+//       hMult  building height multiplier | alpha | col  fill colour
+function drawCityLayer(x, y, w, h, offset, heightScale, hMult, alpha, col) {
+  cx.save();
+  cx.beginPath(); cx.rect(x, y, w, h); cx.clip();
+  cx.globalAlpha = alpha;
+  cx.fillStyle = col;
+  // deterministic building widths & heights from integer index
+  const tileW = 14 * heightScale + 6;
+  const totalTiles = Math.ceil(w / tileW) + 2;
+  const scroll = offset % (totalTiles * tileW);
+  for (let i = -1; i < totalTiles; i++) {
+    const idx = ((i * 2654435761) >>> 0) & 0xFF; // cheap hash
+    const bh  = (idx / 255) * hMult * h + h * 0.08;
+    const bw  = tileW * (0.55 + (((idx * 6364136223) >>> 0) & 0xFF) / 510);
+    const bx  = x + i * tileW - scroll;
+    cx.fillRect(bx, y + h - bh, bw - 1, bh);
+    // tiny window dots on taller buildings
+    if (bh > h * 0.35 && alpha > 0.4) {
+      cx.save();
+      cx.globalAlpha = alpha * 0.55;
+      cx.fillStyle = idx % 3 === 0 ? 'rgba(140,220,255,.9)' : 'rgba(255,200,140,.9)';
+      for (let wy = y + h - bh + 4; wy < y + h - 6; wy += 5) {
+        for (let wx = bx + 2; wx < bx + bw - 3; wx += 5) {
+          if (((wx + wy) | 0) % 7 !== 0) cx.fillRect(wx, wy, 1.5, 1.5);
+        }
+      }
+      cx.restore();
+    }
+  }
   cx.restore();
 }
 
@@ -1210,7 +1320,8 @@ function drawFocusHighlight() {
 }
 
 function updateParticles(dt) {
-  if (state.leanOut) state.cityOffset += dt * 11;
+  // main city is static; TV miniature city scrolls slowly
+  state.cityOffset += dt * 10;
 
   // Smooth parallax
   state.parallaxX += (state.mx - state.parallaxX) * dt * 3;
