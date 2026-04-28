@@ -1,4 +1,5 @@
-const VERSION = 'A2.0';
+const VERSION = 'A2.3-CINEMATIC-VISUAL-PASS';
+const BUILD_STAMP = 'A2.3-CINEMATIC-VISUAL-PASS | 2026-04-28 19:27:56 UTC';
 const RW = 1280, RH = 720;
 const canvas = document.getElementById('c');
 const cx = canvas.getContext('2d');
@@ -36,6 +37,7 @@ const UI = {
 };
 
 let SCALE = 1;
+let focusUiTimer = null;
 const state = {
   t: 0,
   lastTs: 0,
@@ -268,22 +270,28 @@ const layout = {
   room:         { x: 0, y: 0, w: RW, h: RH },
   win:          { x: 278, y: 120, w: 718, h: 300 },
   chair:        { x: 98, y: 376, w: 328, h: 296 },
-  lamp:         { x: 270, y: 299, w: 104, h: 216 },
-  hifi:         { x: 335, y: 269, w: 693, h: 275 },
-  recordPlayer: { x: 317, y: 393, w: 184, h: 59 },
-  headphones:   { x: 479, y: 410, w: 71, h: 41 },
+  lamp:         { x: 252, y: 281, w: 129, h: 230 },
+  hifi:         { x: 320, y: 239, w: 729, h: 311 },
+  recordPlayer: { x: 347, y: 384, w: 128, h: 59 },
+  headphones:   { x: 479, y: 410, w: 68, h: 38 },
   tv:           { x: 818, y: 343, w: 207, h: 127 },
-  table:          { x: 464, y: 374, w: 618, h: 483 },
-  mug:          { x: 544, y: 562, w: 96, h: 88 },
-  remote:       { x: 713, y: 601, w: 72, h: 48 },
-  books:        { x: 799, y: 582, w: 156, h: 92 },
-  cube:         { x: 670, y: 594, w: 56, h: 40 },
-  cubeGlow:     { x: 683, y: 593 },
+  table:        { x: 464, y: 374, w: 618, h: 483 },
+  mug:          { x: 532, y: 577, w: 120, h: 88 },
+  remote:       { x: 719, y: 600, w: 88, h: 77 },
+  books:        { x: 849, y: 576, w: 165, h: 102 },
+  cube:         { x: 667, y: 612, w: 40, h: 40 },
+  cubeGlow:     { x: 680, y: 612 },
   screen:       { x: 857, y: 369, w: 85, h: 71 },
-  rackDisplay:  { x: 491, y: 459, w: 143, h: 11 },
-  rackKnobs:    { x: 581, y: 479 },
+  rackDisplay:  { x: 494, y: 455, w: 143, h: 12 },
+  rackKnobs:    { x: 579, y: 476 },
   recordSleeve: { x: 436, y: 464, w: 45, h: 39 },
-  moon:         { x: 849, y: 131, w: 104, h: 82 },
+  lampMouth:    { x: 328, y: 341 },  // shade opening — drag to match asset
+  lampTarget:   { x: 348, y: 492 },  // point the beam aims toward
+  tvGlowOrigin:   { x: 900, y: 405 },  // centre of TV screen face
+  tvGlowSpill:    { x: 396, y: 544 },  // where light pools on floor/casing below
+  hifiGlowOrigin: { x: 530, y: 468 },  // rack display / amp face
+  hifiGlowSpill:  { x: 530, y: 560 },  // warm pool on floor below rack
+  moon:         { x: 823, y: 148, w: 76, h: 37 },
 };
 
 // ── TEMP LAYOUT DEBUGGER ──────────────────────────────
@@ -309,50 +317,72 @@ const debugTargets = [
   'books',
   'cube',
   'cubeGlow',
-  'moon'
+  'moon',
+  'lampMouth',
+  'lampTarget',
+  'tvGlowOrigin',
+  'tvGlowSpill',
+  'hifiGlowOrigin',
+  'hifiGlowSpill',
+  'hit.window', 'hit.hifi', 'hit.tv', 'hit.holo', 'hit.lamp',
+  'focus.window', 'focus.hifi', 'focus.tv', 'focus.holo', 'focus.lamp'
 ];
 
 
 const hotspots = [
-  { id: 'lamp',   label: 'the lamp',      x: 92,  y: 304, w: 140, h: 236, card: null,     zoom: { s: 1.9,  ax: 0.22, ay: 0.55 } },
-  { id: 'hifi',   label: 'the hi-fi',     x: 338, y: 440, w: 390, h: 160, card: 'hifiUi', zoom: { s: 2.1, ax: 0.5, ay: 0.5 } },
-  { id: 'tv',     label: 'the television',x: layout.tv.x, y: layout.tv.y, w: layout.tv.w, h: layout.tv.h, card: 'tvUi',   zoom: { s: 2.25, ax: 0.5, ay: 0.5 } },
-  { id: 'holo',   label: 'the holocube',  x: 586, y: 488, w: 152, h: 144, card: 'holoUi', zoom: { s: 2.4,  ax: 0.5,  ay: 0.79 } },
-  { id: 'window', label: 'the window',    x: layout.win.x, y: layout.win.y, w: layout.win.w, h: layout.win.h, card: 'winUi',  zoom: { s: 1.65, ax: 0.5,  ay: 0.33 } },
+  {
+    id: 'window',
+    label: 'the window',
+    hit:   { x: 300, y: 130, w: 680, h: 270 },
+    focus: { x: 278, y: 120, w: 718, h: 300 },
+    card: 'winUi',
+    zoom: { s: 1.55, ax: 0.50, ay: 0.42 }
+  },
+  {
+    id: 'hifi',
+    label: 'the hi-fi',
+    hit:   { x: 360, y: 405, w: 440, h: 125 },
+    focus: { x: 335, y: 315, w: 560, h: 230 },
+    card: 'hifiUi',
+    zoom: { s: 1.75, ax: 0.50, ay: 0.58 }
+  },
+  {
+    id: 'tv',
+    label: 'the television',
+    hit:   { x: 810, y: 330, w: 230, h: 170 },
+    focus: { x: 790, y: 315, w: 270, h: 205 },
+    card: 'tvUi',
+    zoom: { s: 2.05, ax: 0.50, ay: 0.50 }
+  },
+  {
+    id: 'holo',
+    label: 'the holocube',
+    hit:   { x: 630, y: 555, w: 120, h: 100 },
+    focus: { x: 600, y: 515, w: 180, h: 155 },
+    card: 'holoUi',
+    zoom: { s: 2.25, ax: 0.50, ay: 0.70 }
+  },
+  {
+    id: 'lamp',
+    label: 'the lamp',
+    hit:   { x: 250, y: 285, w: 150, h: 270 },
+    focus: { x: 235, y: 270, w: 180, h: 300 },
+    card: null,
+    zoom: { s: 1.85, ax: 0.32, ay: 0.55 }
+  }
 ];
 
-// ── HOTSPOT SYNC ──────────────────────────────────────
-// Keep clickable areas aligned with the live layout object.
-// This deliberately preserves the existing hotspot structure, so it does not
-// affect asset loading or draw order.
-const hotspotLayoutMap = {
-  window: 'win',
-  hifi: 'rackDisplay',
-  tv: 'tv',
-  holo: 'cube',
-  lamp: 'lamp'
-};
-
-function syncHotspotsFromLayout() {
-  hotspots.forEach(h => {
-    const key = hotspotLayoutMap[h.id];
-    const r = key ? layout[key] : null;
-    if (!r || r.x == null || r.y == null) return;
-
-    if (r.w != null && r.h != null) {
-      h.x = r.x;
-      h.y = r.y;
-      h.w = r.w;
-      h.h = r.h;
-    } else {
-      // Defensive support for point-style targets.
-      h.x = r.x - 24;
-      h.y = r.y - 24;
-      h.w = 48;
-      h.h = 48;
-    }
-  });
+function hotspotRect(h, mode = 'hit') {
+  return h[mode] || h.hit || h.focus || h;
 }
+
+function hotspotCentre(h, mode = 'focus') {
+  const r = hotspotRect(h, mode);
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+}
+
+// No-op — hit/focus boxes are now independent of layout
+function syncHotspotsFromLayout() {}
 
 
 const tracks = [
@@ -1306,77 +1336,83 @@ function drawCityLayer(x, y, w, h, offset, heightScale, hMult, alpha, col) {
 }
 
 
+function getDebugRect(name) {
+  if (name.startsWith('hit.')) {
+    const id = name.split('.')[1];
+    const h = hotspots.find(s => s.id === id);
+    return h?.hit || null;
+  }
+  if (name.startsWith('focus.')) {
+    const id = name.split('.')[1];
+    const h = hotspots.find(s => s.id === id);
+    return h?.focus || null;
+  }
+  return layout[name] || null;
+}
+
+function formatDebugLine(name, r) {
+  const rounded = `{ x: ${Math.round(r.x)}, y: ${Math.round(r.y)}, w: ${Math.round(r.w)}, h: ${Math.round(r.h)} }`;
+  if (name.startsWith('hit.'))   return `${name}: ${rounded}`;
+  if (name.startsWith('focus.')) return `${name}: ${rounded}`;
+  return r.w == null
+    ? `${name}: { x: ${Math.round(r.x)}, y: ${Math.round(r.y)} },`
+    : `${name}: ${rounded},`;
+}
+
 function drawDebugLayout() {
   if (!DEBUG_LAYOUT) return;
 
-  const target = layout[debugTarget];
+  const target = getDebugRect(debugTarget);
   if (!target) return;
 
   cx.save();
 
   debugTargets.forEach(name => {
-    const r = layout[name];
+    const r = getDebugRect(name);
     if (!r || r.x == null || r.y == null) return;
-
     const hasSize = r.w != null && r.h != null;
+    const isActive = name === debugTarget;
 
-    cx.strokeStyle = name === debugTarget
+    // hit.* = magenta, focus.* = cyan, layout = blue-white
+    const isHit   = name.startsWith('hit.');
+    const isFocus = name.startsWith('focus.');
+    cx.strokeStyle = isActive
       ? 'rgba(255,255,120,.96)'
+      : isHit   ? 'rgba(255,80,220,.7)'
+      : isFocus ? 'rgba(80,220,255,.7)'
       : 'rgba(120,220,255,.28)';
-
-    cx.fillStyle = name === debugTarget
-      ? 'rgba(255,255,120,.14)'
-      : 'rgba(120,220,255,.05)';
-
-    cx.lineWidth = name === debugTarget ? 2 : 1;
-    cx.setLineDash(name === debugTarget ? [] : [6, 5]);
+    cx.fillStyle = isActive
+      ? 'rgba(255,255,120,.10)'
+      : isHit   ? 'rgba(255,80,220,.06)'
+      : isFocus ? 'rgba(80,220,255,.06)'
+      : 'rgba(120,220,255,.04)';
+    cx.lineWidth = isActive ? 2 : 1;
+    cx.setLineDash(isActive ? [] : isHit ? [4, 3] : isFocus ? [2, 4] : [6, 5]);
 
     if (hasSize) {
       cx.strokeRect(r.x, r.y, r.w, r.h);
       cx.fillRect(r.x, r.y, r.w, r.h);
-      cx.font = '12px monospace';
-      cx.fillStyle = name === debugTarget
-        ? 'rgba(255,255,120,.96)'
-        : 'rgba(160,220,255,.62)';
-      cx.fillText(name, r.x + 4, r.y - 6);
+      cx.font = '11px monospace';
+      cx.fillStyle = isActive ? 'rgba(255,255,120,.96)' : cx.strokeStyle;
+      cx.fillText(name, r.x + 4, r.y + 13);
     } else {
       cx.beginPath();
-      cx.arc(r.x, r.y, name === debugTarget ? 8 : 5, 0, Math.PI * 2);
+      cx.arc(r.x, r.y, isActive ? 8 : 5, 0, Math.PI * 2);
       cx.stroke();
-      cx.font = '12px monospace';
-      cx.fillStyle = name === debugTarget
-        ? 'rgba(255,255,120,.96)'
-        : 'rgba(160,220,255,.62)';
+      cx.font = '11px monospace';
+      cx.fillStyle = isActive ? 'rgba(255,255,120,.96)' : cx.strokeStyle;
       cx.fillText(name, r.x + 10, r.y - 8);
     }
   });
 
-  // Draw hotspot zones in magenta so they're visually distinct from layout boxes
-  syncHotspotsFromLayout();
-  hotspots.forEach(h => {
-    cx.strokeStyle = 'rgba(255,80,220,.9)';
-    cx.fillStyle   = 'rgba(255,80,220,.08)';
-    cx.lineWidth   = 1.5;
-    cx.setLineDash([3, 3]);
-    cx.strokeRect(h.x, h.y, h.w, h.h);
-    cx.fillRect(h.x, h.y, h.w, h.h);
-    cx.font = '11px monospace';
-    cx.fillStyle = 'rgba(255,160,240,.9)';
-    const area = Math.round(h.w * h.h / 1000);
-    cx.fillText(`⬡ ${h.id} (${area}k)`, h.x + 4, h.y + 14);
-  });
-
   cx.setLineDash([]);
   cx.fillStyle = 'rgba(0,0,0,.76)';
-  cx.fillRect(22, 22, 660, 92);
-
+  cx.fillRect(22, 22, 720, 92);
   cx.font = '14px monospace';
   cx.fillStyle = '#dff6ff';
 
-  const val = layout[debugTarget];
-  const text = val.w == null
-    ? `${debugTarget}: { x: ${Math.round(val.x)}, y: ${Math.round(val.y)} },`
-    : `${debugTarget}: { x: ${Math.round(val.x)}, y: ${Math.round(val.y)}, w: ${Math.round(val.w)}, h: ${Math.round(val.h)} },`;
+  const val = getDebugRect(debugTarget);
+  const text = formatDebugLine(debugTarget, val);
 
   cx.fillText(`DEBUG TARGET: ${debugTarget}`, 40, 50);
   cx.fillText(text, 40, 74);
@@ -1388,25 +1424,66 @@ function drawDebugLayout() {
 function drawLamp() {
   drawImageFit('lamp', layout.lamp.x, layout.lamp.y, layout.lamp.w, layout.lamp.h, { shadow: { blur: 18, y: 8, color: 'rgba(0,0,0,.35)' } });
   if (!state.lampOn) return;
-  const p = 0.92 + Math.sin(state.t * 11.5) * 0.035;
-  const { x, y, w, h } = layout.lamp;
+
+  const p  = 0.92 + Math.sin(state.t * 11.5) * 0.035;
+  const tp = timeProfile();
+  const intensity = clamp(tp.night * 0.9 + tp.sunset * 0.55 + tp.day * 0.18, 0.15, 1.0);
+
+  // Mouth = shade opening. Target = where the centreline of the beam points.
+  const mx = layout.lampMouth.x;
+  const my = layout.lampMouth.y;
+  const tx = layout.lampTarget.x;
+  const ty = layout.lampTarget.y;
+
+  // Derived beam geometry
+  const dx = tx - mx;
+  const dy = ty - my;
+  const beamLen   = Math.sqrt(dx * dx + dy * dy);
+  const beamAngle = Math.atan2(dy, dx);
+  const spread    = 0.40; // half-angle in radians (~23°)
+
   cx.save();
-  const cone = cx.createLinearGradient(x + w * 0.52, y + 18, x + w * 1.4, y + 118);
-  cone.addColorStop(0, `rgba(255,214,150,${0.22 * p})`);
-  cone.addColorStop(1, 'rgba(255,214,150,0)');
+
+  // Cone — triangle from mouth to two spread edges
+  const ax = mx + Math.cos(beamAngle - spread) * beamLen * 2.2;
+  const ay = my + Math.sin(beamAngle - spread) * beamLen * 2.2;
+  const bx = mx + Math.cos(beamAngle + spread) * beamLen * 2.2;
+  const by = my + Math.sin(beamAngle + spread) * beamLen * 2.2;
+
+  const cone = cx.createRadialGradient(mx, my, 2, mx, my, beamLen * 2.2);
+  cone.addColorStop(0,   `rgba(255,218,145,${0.38 * p * intensity})`);
+  cone.addColorStop(0.4, `rgba(255,200,120,${0.18 * p * intensity})`);
+  cone.addColorStop(1,    'rgba(255,180,90,0)');
   cx.fillStyle = cone;
   cx.beginPath();
-  cx.moveTo(x + w * 0.43, y + 17);
-  cx.lineTo(x + w * 1.55, y + 88);
-  cx.lineTo(x + w * 1.15, y + 105);
-  cx.lineTo(x + w * 0.56, y + 39);
+  cx.moveTo(mx, my);
+  cx.lineTo(ax, ay);
+  cx.lineTo(bx, by);
   cx.closePath();
   cx.fill();
-  const pool = cx.createRadialGradient(x + 44, y + 104, 4, x + 44, y + 104, 35);
-  pool.addColorStop(0, `rgba(255,204,132,${0.18 * p})`);
-  pool.addColorStop(1, 'transparent');
+
+  // Floor pool at target point
+  const pool = cx.createRadialGradient(tx, ty, 4, tx, ty, 80);
+  pool.addColorStop(0, `rgba(255,210,130,${0.22 * p * intensity})`);
+  pool.addColorStop(1,  'transparent');
   cx.fillStyle = pool;
-  cx.fillRect(x + 10, y + 68, 80, 58);
+  cx.fillRect(tx - 85, ty - 40, 170, 100);
+
+  // Halo at shade mouth
+  const halo = cx.createRadialGradient(mx, my, 0, mx, my, 44);
+  halo.addColorStop(0, `rgba(255,220,150,${0.18 * p * intensity})`);
+  halo.addColorStop(1,  'transparent');
+  cx.fillStyle = halo;
+  cx.beginPath(); cx.arc(mx, my, 44, 0, Math.PI * 2); cx.fill();
+
+  // Debug: draw mouth and target points when debug is active
+  if (DEBUG_LAYOUT) {
+    cx.strokeStyle = 'rgba(255,220,80,.9)'; cx.lineWidth = 1.5;
+    cx.beginPath(); cx.arc(mx, my, 5, 0, Math.PI * 2); cx.stroke();
+    cx.beginPath(); cx.arc(tx, ty, 5, 0, Math.PI * 2); cx.stroke();
+    cx.beginPath(); cx.moveTo(mx, my); cx.lineTo(tx, ty); cx.stroke();
+  }
+
   cx.restore();
 }
 
@@ -1646,14 +1723,14 @@ function drawReactiveLighting() {
 }
 
 function drawFocusHighlight() {
-  syncHotspotsFromLayout();
   if (!state.hover) return;
   const h = hotspots.find(s => s.id === state.hover.id);
   if (!h) return;
+  const r = hotspotRect(h, 'hit');
   cx.save();
-  cx.strokeStyle = 'rgba(180,230,255,.18)';
-  cx.setLineDash([4, 4]);
-  rr(cx, h.x, h.y, h.w, h.h, 6);
+  cx.strokeStyle = 'rgba(205,235,255,.24)';
+  cx.setLineDash([5, 7]);
+  rr(cx, r.x, r.y, r.w, r.h, 8);
   cx.stroke();
   cx.restore();
 }
@@ -1770,6 +1847,331 @@ function resetCtx() {
   cx.lineWidth = 1;
 }
 
+
+
+// ── A2.3 CINEMATIC VISUAL PASS ────────────────────────
+// Visual-only finish layers. These do not affect layout, hitboxes,
+// focus behaviour, UI state, media, weather logic, or asset loading.
+function drawTvCrtIntegrationPass() {
+  if (!layout.screen) return;
+
+  const r = layout.screen;
+  const t = state.t || 0;
+
+  cx.save();
+  cx.beginPath();
+  rr(cx, r.x, r.y, r.w, r.h, 8);
+  cx.clip();
+
+  // Gentle convex glass sheen.
+  cx.globalCompositeOperation = 'screen';
+  const glass = cx.createRadialGradient(
+    r.x + r.w * 0.34, r.y + r.h * 0.22, 0,
+    r.x + r.w * 0.34, r.y + r.h * 0.22, r.w * 0.95
+  );
+  glass.addColorStop(0, 'rgba(255,255,255,0.105)');
+  glass.addColorStop(0.28, 'rgba(160,220,255,0.040)');
+  glass.addColorStop(1, 'rgba(0,0,0,0)');
+  cx.fillStyle = glass;
+  cx.fillRect(r.x, r.y, r.w, r.h);
+
+  // CRT scanlines.
+  cx.globalCompositeOperation = 'source-over';
+  cx.globalAlpha = 0.16;
+  cx.fillStyle = 'rgba(0,0,0,1)';
+  for (let y = r.y; y < r.y + r.h; y += 3) {
+    cx.fillRect(r.x, y, r.w, 1);
+  }
+
+  // Subtle rolling light band.
+  cx.globalAlpha = 0.08;
+  cx.globalCompositeOperation = 'screen';
+  const bandY = r.y + ((t * 18) % (r.h + 30)) - 15;
+  const band = cx.createLinearGradient(0, bandY - 10, 0, bandY + 10);
+  band.addColorStop(0, 'rgba(255,255,255,0)');
+  band.addColorStop(0.5, 'rgba(190,230,255,0.55)');
+  band.addColorStop(1, 'rgba(255,255,255,0)');
+  cx.fillStyle = band;
+  cx.fillRect(r.x, bandY - 10, r.w, 20);
+
+  // Darkened tube edges, so video feels inside glass.
+  cx.globalAlpha = 1;
+  cx.globalCompositeOperation = 'multiply';
+  const edge = cx.createRadialGradient(
+    r.x + r.w * 0.5, r.y + r.h * 0.5, r.h * 0.25,
+    r.x + r.w * 0.5, r.y + r.h * 0.5, r.w * 0.78
+  );
+  edge.addColorStop(0, 'rgba(255,255,255,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.36)');
+  cx.fillStyle = edge;
+  cx.fillRect(r.x, r.y, r.w, r.h);
+
+  cx.restore();
+
+  // Soft spill from the TV onto its casing and stand.
+  if (state.tvOn) {
+    const go = layout.tvGlowOrigin;
+    const gs = layout.tvGlowSpill;
+    const spillR = Math.hypot(gs.x - go.x, gs.y - go.y) * 1.6;
+    cx.save();
+    cx.globalCompositeOperation = 'screen';
+    const glow = cx.createRadialGradient(go.x, go.y, 4, gs.x, gs.y, spillR);
+    glow.addColorStop(0,    'rgba(120,190,255,0.13)');
+    glow.addColorStop(0.45, 'rgba(120,90,255,0.055)');
+    glow.addColorStop(1,    'rgba(0,0,0,0)');
+    cx.fillStyle = glow;
+    cx.fillRect(go.x - spillR, go.y - spillR * 0.5, spillR * 2, spillR * 2);
+    cx.restore();
+
+    if (DEBUG_LAYOUT) {
+      cx.save();
+      cx.strokeStyle = 'rgba(120,200,255,.9)'; cx.lineWidth = 1.5;
+      cx.beginPath(); cx.arc(go.x, go.y, 5, 0, Math.PI * 2); cx.stroke();
+      cx.beginPath(); cx.arc(gs.x, gs.y, 5, 0, Math.PI * 2); cx.stroke();
+      cx.beginPath(); cx.moveTo(go.x, go.y); cx.lineTo(gs.x, gs.y); cx.stroke();
+      cx.restore();
+    }
+  }
+}
+
+function drawWindowGlassRichnessPass() {
+  const r = layout.win;
+  if (!r) return;
+
+  const t = state.t || 0;
+  const tp = typeof timeProfile === 'function'
+    ? timeProfile()
+    : { day: 0, sunset: 0, night: 1 };
+
+  cx.save();
+  cx.beginPath();
+  cx.rect(r.x, r.y, r.w, r.h);
+  cx.clip();
+
+  // Very faint vertical distortion/reflection bands.
+  cx.globalCompositeOperation = 'screen';
+
+  // Interior reflection hints: lamp on left, TV on right.
+  if (state.lampOn) {
+    const lamp = cx.createRadialGradient(
+      r.x + r.w * 0.13, r.y + r.h * 0.68, 0,
+      r.x + r.w * 0.13, r.y + r.h * 0.68, r.w * 0.24
+    );
+    lamp.addColorStop(0, 'rgba(255,190,105,0.075)');
+    lamp.addColorStop(1, 'rgba(0,0,0,0)');
+    cx.fillStyle = lamp;
+    cx.fillRect(r.x, r.y, r.w, r.h);
+  }
+
+  if (state.tvOn) {
+    const tv = cx.createRadialGradient(
+      r.x + r.w * 0.83, r.y + r.h * 0.60, 0,
+      r.x + r.w * 0.83, r.y + r.h * 0.60, r.w * 0.20
+    );
+    tv.addColorStop(0, 'rgba(120,200,255,0.055)');
+    tv.addColorStop(1, 'rgba(0,0,0,0)');
+    cx.fillStyle = tv;
+    cx.fillRect(r.x, r.y, r.w, r.h);
+  }
+
+  // Soft top/bottom glass thickness.
+  cx.globalCompositeOperation = 'source-over';
+  const top = cx.createLinearGradient(0, r.y, 0, r.y + r.h * 0.16);
+  top.addColorStop(0, 'rgba(255,255,255,0.09)');
+  top.addColorStop(1, 'rgba(255,255,255,0)');
+  cx.fillStyle = top;
+  cx.fillRect(r.x, r.y, r.w, r.h * 0.16);
+
+  const bottom = cx.createLinearGradient(0, r.y + r.h * 0.78, 0, r.y + r.h);
+  bottom.addColorStop(0, 'rgba(0,0,0,0)');
+  bottom.addColorStop(1, 'rgba(0,0,0,0.14)');
+  cx.fillStyle = bottom;
+  cx.fillRect(r.x, r.y + r.h * 0.78, r.w, r.h * 0.22);
+
+  cx.restore();
+}
+
+function drawFloorAndObjectPolishPass() {
+  const t = state.t || 0;
+  const tp = typeof timeProfile === 'function'
+    ? timeProfile()
+    : { day: 0, sunset: 0, night: 1 };
+  const nightish = clamp(tp.night + tp.sunset * 0.65, 0, 1);
+
+  cx.save();
+
+  // Broad purple city/ceiling reflection across the polished floor.
+  cx.globalCompositeOperation = 'screen';
+  const floor = cx.createRadialGradient(
+    RW * 0.52, RH * 0.65, 0,
+    RW * 0.52, RH * 0.72, RW * 0.62
+  );
+  floor.addColorStop(0, `rgba(190,70,255,${0.075 * nightish})`);
+  floor.addColorStop(0.45, `rgba(90,170,255,${0.032 * nightish})`);
+  floor.addColorStop(1, 'rgba(0,0,0,0)');
+  cx.fillStyle = floor;
+  cx.fillRect(0, RH * 0.40, RW, RH * 0.60);
+
+  // Table top premium sheen.
+  if (layout.table) {
+    const r = layout.table;
+    cx.save();
+    cx.beginPath();
+    cx.rect(r.x + r.w * 0.08, r.y + r.h * 0.20, r.w * 0.84, r.h * 0.28);
+    cx.clip();
+
+    const sheen = cx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h * 0.32);
+    sheen.addColorStop(0, 'rgba(255,255,255,0)');
+    sheen.addColorStop(0.40, 'rgba(255,170,255,0.055)');
+    sheen.addColorStop(0.68, 'rgba(130,225,255,0.052)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0)');
+    cx.fillStyle = sheen;
+    cx.fillRect(r.x, r.y, r.w, r.h * 0.44);
+
+    // A tiny animated sparkle line, almost invisible.
+    const sx = r.x + ((t * 10) % r.w);
+    const sparkle = cx.createLinearGradient(sx - 24, 0, sx + 24, 0);
+    sparkle.addColorStop(0, 'rgba(255,255,255,0)');
+    sparkle.addColorStop(0.5, 'rgba(210,240,255,0.075)');
+    sparkle.addColorStop(1, 'rgba(255,255,255,0)');
+    cx.fillStyle = sparkle;
+    cx.fillRect(sx - 24, r.y + r.h * 0.30, 48, 2);
+
+    cx.restore();
+  }
+
+  // HiFi rack warm glow — amber from display/amp face spilling down
+  if (layout.hifiGlowOrigin && layout.hifiGlowSpill) {
+    const go = layout.hifiGlowOrigin;
+    const gs = layout.hifiGlowSpill;
+    const spillR = Math.hypot(gs.x - go.x, gs.y - go.y) * 1.8;
+    cx.save();
+    cx.globalCompositeOperation = 'screen';
+    const hifiGlow = cx.createRadialGradient(go.x, go.y, 2, gs.x, gs.y, spillR);
+    hifiGlow.addColorStop(0,    `rgba(255,190,100,${0.10 * nightish})`);
+    hifiGlow.addColorStop(0.5,  `rgba(220,140, 60,${0.05 * nightish})`);
+    hifiGlow.addColorStop(1,     'rgba(0,0,0,0)');
+    cx.fillStyle = hifiGlow;
+    cx.fillRect(go.x - spillR, go.y - spillR * 0.3, spillR * 2, spillR * 1.6);
+    cx.restore();
+
+    if (DEBUG_LAYOUT) {
+      cx.save();
+      cx.strokeStyle = 'rgba(255,190,100,.9)'; cx.lineWidth = 1.5;
+      cx.beginPath(); cx.arc(go.x, go.y, 5, 0, Math.PI * 2); cx.stroke();
+      cx.beginPath(); cx.arc(gs.x, gs.y, 5, 0, Math.PI * 2); cx.stroke();
+      cx.beginPath(); cx.moveTo(go.x, go.y); cx.lineTo(gs.x, gs.y); cx.stroke();
+      cx.restore();
+    }
+  }
+
+  cx.restore();
+}
+
+function drawMicroLifePass() {
+  const t = state.t || 0;
+
+  cx.save();
+  cx.globalCompositeOperation = 'screen';
+
+  // Dust motes in the lamp cone. Tiny, slow, warm.
+  if (state.lampOn && layout.lamp) {
+    const lx = layout.lamp.x + layout.lamp.w * 0.58;
+    const ly = layout.lamp.y + layout.lamp.h * 0.45;
+    for (let i = 0; i < 22; i++) {
+      const p = (i * 37.17) % 1;
+      const q = (i * 19.91) % 1;
+      const dx = lx + 20 + p * 210 + Math.sin(t * 0.35 + i) * 6;
+      const dy = ly + 20 + q * 165 + Math.cos(t * 0.27 + i * 0.7) * 5;
+      const a = 0.025 + 0.025 * Math.sin(t * 0.8 + i);
+      cx.fillStyle = `rgba(255,210,145,${Math.max(0, a)})`;
+      cx.beginPath();
+      cx.arc(dx, dy, 0.7 + (i % 3) * 0.25, 0, Math.PI * 2);
+      cx.fill();
+    }
+  }
+
+  // Hi-fi LED breathing dots.
+  if (layout.rackKnobs) {
+    const x = layout.rackKnobs.x;
+    const y = layout.rackKnobs.y;
+    const a = 0.22 + 0.14 * Math.sin(t * 1.8);
+    cx.fillStyle = `rgba(120,210,255,${a})`;
+    cx.beginPath();
+    cx.arc(x - 72, y - 20, 1.4, 0, Math.PI * 2);
+    cx.fill();
+    cx.fillStyle = `rgba(255,120,220,${a * 0.85})`;
+    cx.beginPath();
+    cx.arc(x - 56, y - 20, 1.2, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  cx.restore();
+}
+
+function drawCinematicGradePass() {
+  const tp = typeof timeProfile === 'function'
+    ? timeProfile()
+    : { day: 0, sunset: 0, night: 1 };
+  const nightish = clamp(tp.night + tp.sunset * 0.55, 0, 1);
+
+  cx.save();
+
+  // 1. Grounding shadows — deep corners anchor the scene.
+  cx.globalCompositeOperation = 'multiply';
+  const vignette = cx.createRadialGradient(
+    RW * 0.50, RH * 0.46, RH * 0.28,
+    RW * 0.50, RH * 0.50, RH * 0.98
+  );
+  vignette.addColorStop(0,    'rgba(255,255,255,1)');
+  vignette.addColorStop(0.55, 'rgba(228,224,238,1)');
+  vignette.addColorStop(1,    'rgba( 88, 80,108,1)');
+  cx.fillStyle = vignette;
+  cx.fillRect(0, 0, RW, RH);
+
+  // Extra shadow mass at very bottom — objects sit on the floor, not float.
+  const floorShadow = cx.createLinearGradient(0, RH * 0.72, 0, RH);
+  floorShadow.addColorStop(0, 'rgba(10,6,18,0)');
+  floorShadow.addColorStop(1, `rgba(10,6,18,${0.28 + nightish * 0.12})`);
+  cx.fillStyle = floorShadow;
+  cx.fillRect(0, RH * 0.72, RW, RH * 0.28);
+
+  // 2. Colour grade — cool purple shadows, warmer window zone.
+  cx.globalCompositeOperation = 'soft-light';
+  const grade = cx.createLinearGradient(0, 0, 0, RH);
+  grade.addColorStop(0,    `rgba(55,28,90,${0.14 + nightish * 0.07})`);
+  grade.addColorStop(0.42, `rgba(90,45,80,${0.04})`);
+  grade.addColorStop(1,    `rgba(28,14,44,${0.10 + nightish * 0.05})`);
+  cx.fillStyle = grade;
+  cx.fillRect(0, 0, RW, RH);
+
+  // 3. Lamp spill — warm bloom from lamp position into the room.
+  if (state.lampOn && layout.lamp) {
+    cx.globalCompositeOperation = 'screen';
+    const lx = layout.lamp.x + layout.lamp.w * 0.55;
+    const ly = layout.lamp.y + layout.lamp.h * 0.38;
+    const lamp = cx.createRadialGradient(lx, ly, 0, lx, ly + 60, 220);
+    lamp.addColorStop(0,   `rgba(255,200,130,${0.10 + nightish * 0.06})`);
+    lamp.addColorStop(0.5, `rgba(255,170, 90,${0.04 + nightish * 0.03})`);
+    lamp.addColorStop(1,    'rgba(0,0,0,0)');
+    cx.fillStyle = lamp;
+    cx.fillRect(lx - 220, ly - 40, 440, 320);
+  }
+
+  // 4. City light softening — very faint cool wash over window area only.
+  cx.globalCompositeOperation = 'soft-light';
+  const cityWash = cx.createLinearGradient(
+    layout.win.x, layout.win.y,
+    layout.win.x, layout.win.y + layout.win.h
+  );
+  cityWash.addColorStop(0, `rgba(80,100,160,${0.06 * nightish})`);
+  cityWash.addColorStop(1, `rgba(60, 40,100,${0.04 * nightish})`);
+  cx.fillStyle = cityWash;
+  cx.fillRect(layout.win.x, layout.win.y, layout.win.w, layout.win.h);
+
+  cx.restore();
+}
+
 function render(ts) {
   const dt = state.lastTs ? Math.min(0.033, (ts - state.lastTs) / 1000) : 0.016;
   state.lastTs = ts;
@@ -1781,16 +2183,21 @@ function render(ts) {
   resetCtx(); drawRoom();
   resetCtx(); drawWindowView(dt);
   resetCtx(); drawForegroundFrame();
+  resetCtx(); drawWindowGlassRichnessPass();
   resetCtx(); drawLamp();
   resetCtx(); drawHifiRack();
   resetCtx(); drawRecordPlayer();
   resetCtx(); drawHeadphones();
   resetCtx(); drawChair();
   resetCtx(); drawTV();
+  resetCtx(); drawTvCrtIntegrationPass();
   resetCtx(); drawTableAndProps();
   resetCtx(); drawCube();
   resetCtx(); drawReactiveLighting();
   resetCtx(); drawAtmosphere();
+  resetCtx(); drawFloorAndObjectPolishPass();
+  resetCtx(); drawMicroLifePass();
+  resetCtx(); drawCinematicGradePass();
   resetCtx(); drawFocusHighlight();
   resetCtx(); drawDebugLayout();
 
@@ -1811,11 +2218,26 @@ function showLabel(text, color = '#b4f2ff', hold = 1.1) {
 
 function updateUiState() {
   syncHotspotsFromLayout();
+
   document.querySelectorAll('.fcard').forEach(el => el.classList.remove('show'));
-  if (state.focus) {
-    const h = hotspots.find(s => s.id === state.focus);
-    if (h?.card) UI[h.card].classList.add('show');
+
+  if (focusUiTimer) {
+    clearTimeout(focusUiTimer);
+    focusUiTimer = null;
   }
+
+  if (state.focus) {
+    const focusId = state.focus;
+    const h = hotspots.find(s => s.id === focusId);
+
+    if (h?.card && UI[h.card]) {
+      focusUiTimer = setTimeout(() => {
+        if (state.focus !== focusId) return;
+        UI[h.card].classList.add('show');
+      }, 420);
+    }
+  }
+
   UI.back.classList.toggle('show', !!state.focus);
 
   document.querySelectorAll('[data-source]').forEach(el => el.classList.toggle('on', el.dataset.source === state.musicSource));
@@ -1839,8 +2261,6 @@ function updateUiState() {
 }
 
 function applyFocusTransform(instant = false) {
-  syncHotspotsFromLayout();
-
   // Slow, breathing transitions — this is a relaxing space
   canvas.style.transition = instant
     ? 'none'
@@ -1856,8 +2276,7 @@ function applyFocusTransform(instant = false) {
   }
   const h = hotspots.find(s => s.id === state.focus);
   if (!h) return;
-  const cx0 = h.x + h.w / 2;
-  const cy0 = h.y + h.h / 2;
+  const c = hotspotCentre(h, 'focus');
   const s = h.zoom.s;
   const baseW = RW * SCALE;
   const baseH = RH * SCALE;
@@ -1865,8 +2284,8 @@ function applyFocusTransform(instant = false) {
   const baseTop  = (innerHeight - baseH) / 2;
   const desiredX = innerWidth  * h.zoom.ax;
   const desiredY = innerHeight * h.zoom.ay;
-  const tx = desiredX - baseLeft - cx0 * SCALE * s;
-  const ty = desiredY - baseTop  - cy0 * SCALE * s;
+  const tx = desiredX - baseLeft - c.x * SCALE * s;
+  const ty = desiredY - baseTop  - c.y * SCALE * s;
   canvas.style.transformOrigin = '0 0';
   canvas.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
   canvas.style.filter = state.focus === 'window'
@@ -1889,19 +2308,24 @@ function setFocus(id) {
 }
 
 function hitTest(clientX, clientY) {
-  syncHotspotsFromLayout();
   const rect = canvas.getBoundingClientRect();
-  const effectiveScale = rect.width / RW;
-  const x = (clientX - rect.left) / effectiveScale;
-  const y = (clientY - rect.top) / effectiveScale;
-  // Sort ascending by area so the most specific (smallest) hotspot always wins
-  const hits = hotspots.filter(h => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
-  if (!hits.length) return null;
-  return hits.sort((a, b) => (a.w * a.h) - (b.w * b.h))[0];
+  const x = (clientX - rect.left) * (RW / rect.width);
+  const y = (clientY - rect.top)  * (RH / rect.height);
+
+  // Specific objects first, then big background areas
+  const priority = ['tv', 'holo', 'lamp', 'hifi', 'window'];
+  for (const id of priority) {
+    const h = hotspots.find(s => s.id === id);
+    if (!h) continue;
+    const r = hotspotRect(h, 'hit');
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return h;
+  }
+  return null;
 }
 
 canvas.addEventListener('mousemove', e => {
   state.hover = hitTest(e.clientX, e.clientY);
+  canvas.style.cursor = state.hover ? 'pointer' : 'default';
   const rect = canvas.getBoundingClientRect();
   const scale = rect.width / RW;
   state.mx = ((e.clientX - rect.left) / scale / RW) * 2 - 1; // -1..1
@@ -1912,6 +2336,13 @@ canvas.addEventListener('click', e => {
   const hit = hitTest(e.clientX, e.clientY);
   if (!hit) {
     if (state.focus) setFocus(null);
+    return;
+  }
+
+  // Lamp always toggles immediately — no zoom
+  if (hit.id === 'lamp') {
+    state.lampOn = !state.lampOn;
+    showLabel(state.lampOn ? '[ LAMP ON ]' : '[ LAMP OFF ]', '#ffe2bb');
     return;
   }
 
@@ -1929,11 +2360,6 @@ canvas.addEventListener('click', e => {
       state.musicOn = true;
       updateUiState();
       showLabel(`[ ${state.musicSource.toUpperCase()} ]`, '#ffd8ff');
-      return;
-    }
-    if (hit.id === 'lamp') {
-      state.lampOn = !state.lampOn;
-      showLabel(state.lampOn ? '[ LAMP ON ]' : '[ LAMP OFF ]', '#ffe2bb');
       return;
     }
     if (hit.id === 'holo') {
@@ -2025,7 +2451,7 @@ window.addEventListener('keydown', e => {
 
   if (!DEBUG_LAYOUT) return;
 
-  const r = layout[debugTarget];
+  const r = getDebugRect(debugTarget);
   if (!r) return;
 
   const isArrow = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key);
@@ -2035,27 +2461,16 @@ window.addEventListener('keydown', e => {
     e.preventDefault();
     const i = debugTargets.indexOf(debugTarget);
     debugTarget = debugTargets[(i + 1) % debugTargets.length];
-
-    console.log('Debug target:', debugTarget, layout[debugTarget]);
+    console.log('Debug target:', debugTarget, getDebugRect(debugTarget));
     return;
   }
 
   if (e.key === 'c' || e.key === 'C') {
-    const v = layout[debugTarget];
-    const output = v.w == null
-      ? `${debugTarget}: { x: ${Math.round(v.x)}, y: ${Math.round(v.y)} },`
-      : `${debugTarget}: { x: ${Math.round(v.x)}, y: ${Math.round(v.y)}, w: ${Math.round(v.w)}, h: ${Math.round(v.h)} },`;
-
+    const v = getDebugRect(debugTarget);
+    const output = formatDebugLine(debugTarget, v);
     console.log(output);
-
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(output).catch(() => {});
-    }
-
-    if (typeof showLabel === 'function') {
-      showLabel(`[ COPIED ${debugTarget} ]`, '#ffffa8', 0.8);
-    }
-
+    if (navigator.clipboard) navigator.clipboard.writeText(output).catch(() => {});
+    if (typeof showLabel === 'function') showLabel(`[ COPIED ${debugTarget} ]`, '#ffffa8', 0.8);
     return;
   }
 
@@ -2075,19 +2490,9 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') r.w += step;
     if (e.key === 'ArrowUp') r.h -= step;
     if (e.key === 'ArrowDown') r.h += step;
-
     r.w = Math.max(1, r.w);
     r.h = Math.max(1, r.h);
   }
-
-  const hs = hotspots.find(h => h.id === debugTarget);
-  if (hs && r.w != null && r.h != null) {
-    hs.x = r.x;
-    hs.y = r.y;
-    hs.w = r.w;
-    hs.h = r.h;
-  }
-  syncHotspotsFromLayout();
 });
 
 // ── SNOW SYSTEM ───────────────────────────────────────
@@ -2114,3 +2519,11 @@ loadAssets();
 resize();
 updateUiState();
 requestAnimationFrame(render);
+
+// HUSH_STEP_4A_ESCAPE_HANDLER
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.focus) {
+    e.preventDefault();
+    setFocus(null);
+  }
+});
